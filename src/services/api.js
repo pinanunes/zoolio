@@ -8,9 +8,9 @@ const FEEDBACK_WEBHOOK_URL = 'https://manuelnunes.duckdns.org/webhook/429f2428-e
 // Secure API key for webhook authentication
 const WEBHOOK_API_KEY = 'maria-secure-key-2024-supabase-v1';
 
-// Create axios instance
+// Create axios instance with default timeout
 const api = axios.create({
-  timeout: 30000,
+  timeout: 20000, // Default 20 seconds
 });
 
 // Function to get user data from Supabase session (including role)
@@ -28,25 +28,44 @@ const getUserData = async () => {
 };
 
 // Send chat message to webhook
-export const sendChatMessage = async (message, user) => {
+export const sendChatMessage = async (message, user, config = null, customTimeout = null) => {
   try {
     const userData = await getUserData();
     
-    const response = await api.post(CHAT_WEBHOOK_URL, {
+    const payload = {
       message: message,
       user: userData || user, // Use Supabase user data if available, fallback to passed user
       timestamp: new Date().toISOString(),
       source: 'maria-chat-supabase'
-    }, {
+    };
+
+    // Add configuration if provided
+    if (config) {
+      payload.config = config;
+    }
+    
+    // Create request config with custom timeout if provided
+    const requestConfig = {
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': WEBHOOK_API_KEY
       }
-    });
+    };
+    
+    if (customTimeout) {
+      requestConfig.timeout = customTimeout;
+    }
+    
+    const response = await api.post(CHAT_WEBHOOK_URL, payload, requestConfig);
 
     return response.data;
   } catch (error) {
     console.error('Error sending chat message:', error);
+    
+    // Check if it's a timeout error
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      throw new Error('TIMEOUT');
+    }
     
     if (error.response) {
       throw new Error(`Erro do servidor: ${error.response.status} - ${error.response.data?.message || 'Erro desconhecido'}`);

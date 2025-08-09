@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import BotaoSair from '../components/BotaoSair';
 import ChatMessage from '../components/ChatMessage';
 import FeedbackModal from '../components/FeedbackModal';
+import ConfiguracaoPainel from '../components/ConfiguracaoPainel';
+import TimeoutMessage from '../components/TimeoutMessage';
 import { sendChatMessage, sendFeedback } from '../services/api';
 
 const PaginaChat = () => {
@@ -15,6 +17,17 @@ const PaginaChat = () => {
     messageId: null,
     question: '',
     answer: ''
+  });
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [config, setConfig] = useState({
+    modelo: 'gemini-2.5-flash',
+    memoria: 'curto_prazo',
+    promptAdicional: ''
+  });
+  const [timeoutState, setTimeoutState] = useState({
+    isWaiting: false,
+    currentQuestion: null,
+    timeoutMessageId: null
   });
   
   const messagesEndRef = useRef(null);
@@ -34,6 +47,68 @@ const PaginaChat = () => {
     inputRef.current?.focus();
   }, []);
 
+  const sendMessageWithTimeout = async (question, customTimeout = null) => {
+    try {
+      const startTime = Date.now();
+      const response = await sendChatMessage(question, user, config, customTimeout);
+      const endTime = Date.now();
+      const responseTime = (endTime - startTime) / 1000;
+      
+      console.log('Webhook response:', response);
+      console.log('Response time:', responseTime + 's');
+      
+      // Handle different response formats
+      let botContent;
+      if (typeof response === 'string') {
+        try {
+          const parsed = JSON.parse(response);
+          botContent = { answer: parsed.output || response };
+        } catch (parseError) {
+          botContent = { answer: response };
+        }
+      } else if (response && typeof response === 'object') {
+        botContent = { 
+          answer: response.output || response.answer || response.message || 
+                  response.text || response.response || JSON.stringify(response) 
+        };
+      } else {
+        botContent = { answer: 'Resposta recebida mas em formato inesperado.' };
+      }
+      
+      const botMessage = {
+        id: `bot-${Date.now()}`,
+        type: 'bot',
+        content: botContent,
+        timestamp: new Date().toISOString(),
+        originalQuestion: question,
+        responseTime: responseTime
+      };
+
+      setMessages(prev => [...prev, botMessage]);
+      return true;
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      
+      if (error.message === 'TIMEOUT') {
+        return false; // Indicate timeout
+      }
+      
+      // Other errors
+      const errorMessage = {
+        id: `bot-error-${Date.now()}`,
+        type: 'bot',
+        content: {
+          answer: 'Peço desculpa, mas ocorreu um erro ao processar a sua mensagem. Por favor, tente novamente em alguns instantes.'
+        },
+        timestamp: new Date().toISOString(),
+        originalQuestion: question
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+      return true; // Indicate error was handled
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     
@@ -46,96 +121,82 @@ const PaginaChat = () => {
       timestamp: new Date().toISOString()
     };
 
-    // Adicionar mensagem do utilizador
     setMessages(prev => [...prev, userMessage]);
     const currentQuestion = inputMessage.trim();
     setInputMessage('');
     setIsLoading(true);
 
-    try {
-      // Record start time for response time calculation
-      const startTime = Date.now();
-      
-      // Enviar mensagem para o webhook do chat com dados do utilizador
-      const response = await sendChatMessage(currentQuestion, user);
-      
-      // Calculate response time
-      const endTime = Date.now();
-      const responseTime = (endTime - startTime) / 1000; // Convert to seconds
-      
-      // Debug: Log the webhook response to understand its structure
-      console.log('Webhook response:', response);
-      console.log('Response type:', typeof response);
-      console.log('Response structure:', JSON.stringify(response, null, 2));
-      console.log('Response time:', responseTime + 's');
-      
-      // Handle different response formats more robustly
-      let botContent;
-      if (typeof response === 'string') {
-        // Check if it's a JSON string that needs parsing
-        try {
-          const parsed = JSON.parse(response);
-          if (parsed.output) {
-            botContent = { answer: parsed.output };
-          } else {
-            botContent = { answer: response };
-          }
-        } catch (parseError) {
-          // If parsing fails, use the string directly
-          botContent = { answer: response };
-        }
-      } else if (response && typeof response === 'object') {
-        // If response is an object, try to extract the message
-        if (response.output) {
-          botContent = { answer: response.output };
-        } else if (response.answer) {
-          botContent = { answer: response.answer };
-        } else if (response.message) {
-          botContent = { answer: response.message };
-        } else if (response.text) {
-          botContent = { answer: response.text };
-        } else if (response.response) {
-          botContent = { answer: response.response };
-        } else {
-          // If none of the expected fields exist, stringify the object
-          botContent = { answer: JSON.stringify(response) };
-        }
-      } else {
-        // Fallback for unexpected response types
-        botContent = { answer: 'Resposta recebida mas em formato inesperado.' };
-      }
-      
-      // Criar mensagem do bot com a resposta
-      const botMessage = {
-        id: `bot-${Date.now()}`,
-        type: 'bot',
-        content: botContent,
-        timestamp: new Date().toISOString(),
-        originalQuestion: currentQuestion,
-        responseTime: responseTime
-      };
-
-      setMessages(prev => [...prev, botMessage]);
-    } catch (error) {
-      console.error('Erro ao enviar mensagem:', error);
-      
-      // Mensagem de erro amigável
-      const errorMessage = {
-        id: `bot-error-${Date.now()}`,
-        type: 'bot',
-        content: {
-          answer: 'Peço desculpa, mas ocorreu um erro ao processar a sua mensagem. Por favor, tente novamente em alguns instantes.'
-        },
+    const success = await sendMessageWithTimeout(currentQuestion);
+    
+    if (!success) {
+      // Timeout occurred, show timeout message
+      const timeoutMessageId = `timeout-${Date.now()}`;
+      const timeoutMessage = {
+        id: timeoutMessageId,
+        type: 'timeout',
+        content: null,
         timestamp: new Date().toISOString(),
         originalQuestion: currentQuestion
       };
 
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-      // Focar novamente no input
-      setTimeout(() => inputRef.current?.focus(), 100);
+      setMessages(prev => [...prev, timeoutMessage]);
+      setTimeoutState({
+        isWaiting: true,
+        currentQuestion: currentQuestion,
+        timeoutMessageId: timeoutMessageId
+      });
     }
+
+    setIsLoading(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const handleWaitLonger = async () => {
+    // Remove timeout message and show loading again
+    setMessages(prev => prev.filter(msg => msg.id !== timeoutState.timeoutMessageId));
+    setIsLoading(true);
+    
+    // Try again with extended timeout (40 seconds total)
+    const success = await sendMessageWithTimeout(timeoutState.currentQuestion, 40000);
+    
+    if (!success) {
+      // Still timeout, show final error
+      const errorMessage = {
+        id: `bot-final-error-${Date.now()}`,
+        type: 'bot',
+        content: {
+          answer: 'Peço desculpa, mas a resposta está a demorar demasiado tempo. Por favor, tente reformular a sua pergunta ou tente novamente mais tarde.'
+        },
+        timestamp: new Date().toISOString(),
+        originalQuestion: timeoutState.currentQuestion
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    }
+
+    // Reset timeout state
+    setTimeoutState({
+      isWaiting: false,
+      currentQuestion: null,
+      timeoutMessageId: null
+    });
+    
+    setIsLoading(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const handleCancelWait = () => {
+    // Remove timeout message
+    setMessages(prev => prev.filter(msg => msg.id !== timeoutState.timeoutMessageId));
+    
+    // Reset timeout state
+    setTimeoutState({
+      isWaiting: false,
+      currentQuestion: null,
+      timeoutMessageId: null
+    });
+    
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleFeedback = async (feedbackData) => {
@@ -257,19 +318,30 @@ const PaginaChat = () => {
             ) : (
               /* Lista de mensagens */
               <div className="space-y-6">
-                {messages.map((message) => (
-                  <ChatMessage
-                    key={message.id}
-                    message={message}
-                    onFeedback={handleFeedback}
-                  />
-                ))}
+                {messages.map((message) => {
+                  if (message.type === 'timeout') {
+                    return (
+                      <TimeoutMessage
+                        key={message.id}
+                        onWaitLonger={handleWaitLonger}
+                        onCancel={handleCancelWait}
+                      />
+                    );
+                  }
+                  return (
+                    <ChatMessage
+                      key={message.id}
+                      message={message}
+                      onFeedback={handleFeedback}
+                    />
+                  );
+                })}
                 
                 {/* Indicador de carregamento */}
                 {isLoading && (
                   <div className="flex justify-start">
                     <div className="flex items-start space-x-3">
-                      <div className="w-8 h-8 bg-gradient-to-br from-maria-green-400 to-maria-green-600 rounded-full flex items-center justify-center">
+                      <div className="w-8 h-8 bg-linear-to-br from-maria-green-400 to-maria-green-600 rounded-full flex items-center justify-center">
                         <span className="text-white text-sm font-medium">M</span>
                       </div>
                       <div className="px-4 py-3 bg-maria-gray-700 rounded-lg shadow-sm">
@@ -291,51 +363,67 @@ const PaginaChat = () => {
         {/* Formulário de input - estilo Claude.ai */}
         <div className="border-t px-4 py-6" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }}>
           <div className="max-w-3xl mx-auto">
-            <form onSubmit={handleSendMessage} className="relative">
-              <div className="relative">
-                <textarea
-                  ref={inputRef}
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage(e);
-                    }
-                  }}
-                  placeholder="Escreva a sua pergunta aqui... (Enter para enviar, Shift+Enter para nova linha)"
-                  disabled={isLoading}
-                  rows={1}
-                  className="w-full px-4 py-4 pr-12 rounded-xl focus:outline-none resize-none chat-input"
-                  style={{ 
-                    minHeight: '56px', 
-                    maxHeight: '200px',
-                    backgroundColor: '#334155 !important',
-                    border: '1px solid #475569',
-                    color: '#ffffff !important',
-                    fontSize: '16px',
-                    fontWeight: '400',
-                    lineHeight: '1.5'
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={!inputMessage.trim() || isLoading}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 bg-maria-green-600 text-white rounded-lg hover:bg-maria-green-700 focus:outline-none focus:ring-2 focus:ring-maria-green-500 disabled:bg-maria-gray-600 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isLoading ? (
-                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </form>
+            <div className="flex items-start space-x-3">
+              {/* Configuration Button */}
+              <button
+                onClick={() => setIsConfigOpen(true)}
+                className="p-3 rounded-lg transition-colors hover:bg-slate-700 flex-shrink-0"
+                title="Configuração"
+                style={{ backgroundColor: '#334155', border: '1px solid #475569' }}
+              >
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+
+              {/* Input Form */}
+              <form onSubmit={handleSendMessage} className="relative flex-1">
+                <div className="relative">
+                  <textarea
+                    ref={inputRef}
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                      }
+                    }}
+                    placeholder="Escreva a sua pergunta aqui... (Enter para enviar, Shift+Enter para nova linha)"
+                    disabled={isLoading}
+                    rows={1}
+                    className="w-full px-4 py-4 pr-12 rounded-xl focus:outline-none resize-none chat-input"
+                    style={{ 
+                      minHeight: '56px', 
+                      maxHeight: '200px',
+                      backgroundColor: '#334155 !important',
+                      border: '1px solid #475569',
+                      color: '#ffffff !important',
+                      fontSize: '16px',
+                      fontWeight: '400',
+                      lineHeight: '1.5'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!inputMessage.trim() || isLoading}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 bg-maria-green-600 text-white rounded-lg hover:bg-maria-green-700 focus:outline-none focus:ring-2 focus:ring-maria-green-500 disabled:bg-maria-gray-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isLoading ? (
+                      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
             
             <p className="text-xs mt-3 text-center" style={{ color: '#94a3b8' }}>
               A MarIA é uma assistente virtual. As informações fornecidas não substituem o aconselhamento médico profissional.
@@ -351,6 +439,14 @@ const PaginaChat = () => {
         onSubmit={handleFeedbackSubmit}
         question={feedbackModal.question}
         answer={feedbackModal.answer}
+      />
+
+      {/* Painel de Configuração */}
+      <ConfiguracaoPainel
+        isOpen={isConfigOpen}
+        onClose={() => setIsConfigOpen(false)}
+        config={config}
+        onConfigChange={setConfig}
       />
     </div>
   );

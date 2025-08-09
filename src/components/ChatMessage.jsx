@@ -100,8 +100,8 @@ const ChatMessage = ({ message, onFeedback }) => {
         <div className="max-w-xs lg:max-w-2xl w-full">
           {/* Avatar e mensagem do bot */}
           <div className="flex items-start space-x-3">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-gradient-to-br from-maria-green-400 to-maria-green-600 rounded-full flex items-center justify-center shadow-lg">
+            <div className="shrink-0">
+              <div className="w-8 h-8 bg-linear-to-br from-maria-green-400 to-maria-green-600 rounded-full flex items-center justify-center shadow-lg">
                 <span className="text-white text-sm font-medium">M</span>
               </div>
             </div>
