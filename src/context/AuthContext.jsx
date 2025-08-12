@@ -98,6 +98,8 @@ export const AuthProvider = ({ children }) => {
               supervisor_id,
               blue_team_review_target_id,
               points,
+              ficha_entregue,
+              revisao_entregue,
               diseases (
                 id,
                 name
@@ -115,6 +117,8 @@ export const AuthProvider = ({ children }) => {
               assignedDiseaseId: teamData.assigned_disease_id,
               supervisorId: teamData.supervisor_id,
               blueTeamReviewTargetId: teamData.blue_team_review_target_id,
+              fichaEntregue: teamData.ficha_entregue || false,
+              revisaoEntregue: teamData.revisao_entregue || false,
               disease: teamData.diseases ? {
                 id: teamData.diseases.id,
                 name: teamData.diseases.name

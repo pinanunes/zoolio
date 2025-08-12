@@ -34,6 +34,9 @@ const Header = () => {
             <div className="text-right">
               <p className="text-white font-medium">{user?.name}</p>
               <p className="text-sm text-gray-300 capitalize">{user?.role}</p>
+              {user?.role === 'student' && user?.team?.name && (
+                <p className="text-xs text-green-400">{user.team.name}</p>
+              )}
             </div>
 
             {/* Logout button */}

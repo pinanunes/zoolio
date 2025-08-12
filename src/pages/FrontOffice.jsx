@@ -14,46 +14,12 @@ const FrontOffice = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bot-junior');
-  const [teamProgress, setTeamProgress] = useState({
-    hasSubmittedSheet: false,
-    hasSubmittedReview: false
-  });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadTeamProgress();
-  }, [user]);
-
-  const loadTeamProgress = async () => {
-    try {
-      setLoading(true);
-      
-      // Get user's team progress
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select(`
-          team_id,
-          teams (
-            id,
-            team_name,
-            has_submitted_sheet,
-            has_submitted_review
-          )
-        `)
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.teams) {
-        setTeamProgress({
-          hasSubmittedSheet: profile.teams.has_submitted_sheet,
-          hasSubmittedReview: profile.teams.has_submitted_review
-        });
-      }
-    } catch (error) {
-      console.error('Error loading team progress:', error);
-    } finally {
-      setLoading(false);
-    }
+  // Get team progress directly from user context
+  const teamProgress = {
+    hasSubmittedSheet: user?.team?.fichaEntregue || false,
+    hasSubmittedReview: user?.team?.revisaoEntregue || false
   };
 
   // Generate tabs based on team progress
