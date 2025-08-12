@@ -1,20 +1,33 @@
 import React, { useState } from 'react';
 
 const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
-  const [selectedReason, setSelectedReason] = useState('');
+  const [selectedOptions, setSelectedOptions] = useState({
+    informacaoCorreta: false,
+    informacaoCompleta: false,
+    aprendiAlgo: false
+  });
   const [comment, setComment] = useState('');
 
-  const feedbackReasons = [
-    'Resposta errada',
-    'Resposta incompleta',
-    'Tom da resposta desadequado',
-    'Referências erradas'
+  const positiveFeedbackOptions = [
+    { key: 'informacaoCorreta', label: 'A informação é correta' },
+    { key: 'informacaoCompleta', label: 'A informação está completa' },
+    { key: 'aprendiAlgo', label: 'Aprendi qualquer coisa com o bot hoje' }
   ];
+
+  const handleOptionChange = (optionKey) => {
+    setSelectedOptions(prev => ({
+      ...prev,
+      [optionKey]: !prev[optionKey]
+    }));
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!selectedReason) {
-      alert('Por favor, selecione um motivo para o feedback.');
+    
+    // Check if at least one option is selected
+    const hasSelectedOption = Object.values(selectedOptions).some(value => value);
+    if (!hasSelectedOption) {
+      alert('Por favor, selecione pelo menos uma opção.');
       return;
     }
 
@@ -22,20 +35,28 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
       question,
       answer,
       feedback: {
-        rating: 'negativo',
-        reason: selectedReason,
+        rating: 'positivo',
+        options: selectedOptions,
         comment: comment.trim()
       }
     });
 
     // Reset form
-    setSelectedReason('');
+    setSelectedOptions({
+      informacaoCorreta: false,
+      informacaoCompleta: false,
+      aprendiAlgo: false
+    });
     setComment('');
     onClose();
   };
 
   const handleClose = () => {
-    setSelectedReason('');
+    setSelectedOptions({
+      informacaoCorreta: false,
+      informacaoCompleta: false,
+      aprendiAlgo: false
+    });
     setComment('');
     onClose();
   };
@@ -48,7 +69,7 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold" style={{ color: '#ffffff' }}>
-              Feedback sobre a resposta
+              Feedback Positivo
             </h3>
             <button
               onClick={handleClose}
@@ -70,28 +91,26 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
           </div>
 
           <p className="text-sm mb-6" style={{ color: '#cbd5e1' }}>
-            Ajude-nos a melhorar! Por favor, indique o que não correu bem com esta resposta.
+            Obrigado pelo feedback positivo! Selecione as opções que se aplicam:
           </p>
 
           <form onSubmit={handleSubmit}>
             <div className="mb-6">
               <label className="block text-sm font-medium mb-3" style={{ color: '#e2e8f0' }}>
-                Motivo do feedback:
+                O que achou positivo na resposta:
               </label>
               <div className="space-y-3">
-                {feedbackReasons.map((reason) => (
+                {positiveFeedbackOptions.map((option) => (
                   <label 
-                    key={reason} 
+                    key={option.key} 
                     className="flex items-center cursor-pointer p-2 rounded-lg transition-colors"
                     onMouseEnter={(e) => e.target.style.backgroundColor = '#334155'}
                     onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                   >
                     <input
-                      type="radio"
-                      name="feedbackReason"
-                      value={reason}
-                      checked={selectedReason === reason}
-                      onChange={(e) => setSelectedReason(e.target.value)}
+                      type="checkbox"
+                      checked={selectedOptions[option.key]}
+                      onChange={() => handleOptionChange(option.key)}
                       className="mr-3"
                       style={{ 
                         accentColor: '#4ade80',
@@ -99,7 +118,7 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
                         borderColor: '#475569'
                       }}
                     />
-                    <span className="text-sm" style={{ color: '#e2e8f0' }}>{reason}</span>
+                    <span className="text-sm" style={{ color: '#e2e8f0' }}>{option.label}</span>
                   </label>
                 ))}
               </div>
@@ -107,14 +126,14 @@ const FeedbackModal = ({ isOpen, onClose, onSubmit, question, answer }) => {
 
             <div className="mb-6">
               <label htmlFor="comment" className="block text-sm font-medium mb-2" style={{ color: '#e2e8f0' }}>
-                Comentários adicionais (opcional):
+                Descreva o que achou de positivo na resposta:
               </label>
               <textarea
                 id="comment"
                 rows={3}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Descreva com mais detalhe o que pode ser melhorado..."
+                placeholder="Descreva o que achou de positivo na resposta..."
                 className="w-full px-3 py-2 rounded-lg resize-none focus:outline-none focus:ring-2"
                 style={{ 
                   backgroundColor: '#334155',

@@ -9,10 +9,15 @@ const PaginaRegisto = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState('doente');
+  const [userType, setUserType] = useState('student'); // 'student' or 'professor'
+  const [studentNumber, setStudentNumber] = useState('');
+  const [teamId, setTeamId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Generate team options (1-30)
+  const teamOptions = Array.from({ length: 30 }, (_, i) => i + 1);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,12 +32,31 @@ const PaginaRegisto = () => {
       return;
     }
 
+    // Validate student-specific fields
+    if (userType === 'student') {
+      if (!studentNumber.trim()) {
+        setError('Número de estudante é obrigatório');
+        return;
+      }
+      if (!teamId) {
+        setError('Selecione um grupo');
+        return;
+      }
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
-      const result = await register(name, email, password, role);
+      const result = await register(
+        name, 
+        email, 
+        password, 
+        userType, 
+        userType === 'student' ? studentNumber : null,
+        userType === 'student' ? parseInt(teamId) : null
+      );
       
       if (result.needsConfirmation) {
         setSuccess(result.message);
@@ -52,15 +76,54 @@ const PaginaRegisto = () => {
       <div className="w-full max-w-md p-8 space-y-6 rounded-lg shadow-lg" style={{ backgroundColor: '#334155' }}>
         <div className="text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
-            <span className="text-white font-bold text-2xl">M</span>
+            <span className="text-white font-bold text-2xl">Z</span>
           </div>
-          <h2 className="text-2xl font-bold" style={{ color: '#ffffff' }}>Criar Conta</h2>
+          <h2 className="text-2xl font-bold" style={{ color: '#ffffff' }}>Criar Conta - Zoolio</h2>
           <p className="mt-2 text-sm" style={{ color: '#cbd5e1' }}>
-            Junte-se à MarIA e comece a cuidar da sua saúde
+            Registe-se na plataforma educativa de medicina veterinária
           </p>
         </div>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
+          {/* User Type Selection */}
+          <div>
+            <label className="block text-sm font-medium mb-3" style={{ color: '#e2e8f0' }}>
+              Tipo de Utilizador
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setUserType('student')}
+                className={`p-3 rounded-md border-2 transition-colors ${
+                  userType === 'student' 
+                    ? 'border-green-500 bg-green-500 bg-opacity-20' 
+                    : 'border-gray-500 hover:border-gray-400'
+                }`}
+                style={{ 
+                  backgroundColor: userType === 'student' ? 'rgba(34, 197, 94, 0.2)' : '#475569',
+                  borderColor: userType === 'student' ? '#22c55e' : '#64748b'
+                }}
+              >
+                <span className="text-white font-medium">Sou Estudante</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUserType('professor')}
+                className={`p-3 rounded-md border-2 transition-colors ${
+                  userType === 'professor' 
+                    ? 'border-green-500 bg-green-500 bg-opacity-20' 
+                    : 'border-gray-500 hover:border-gray-400'
+                }`}
+                style={{ 
+                  backgroundColor: userType === 'professor' ? 'rgba(34, 197, 94, 0.2)' : '#475569',
+                  borderColor: userType === 'professor' ? '#22c55e' : '#64748b'
+                }}
+              >
+                <span className="text-white font-medium">Sou Professor</span>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label htmlFor="name" className="block text-sm font-medium" style={{ color: '#e2e8f0' }}>
               Nome Completo
@@ -70,7 +133,7 @@ const PaginaRegisto = () => {
               name="name"
               type="text"
               required
-              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-maria-green-500"
+              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               style={{ 
                 backgroundColor: '#475569', 
                 border: '1px solid #64748b',
@@ -82,6 +145,55 @@ const PaginaRegisto = () => {
             />
           </div>
 
+          {userType === 'student' && (
+            <div>
+              <label htmlFor="studentNumber" className="block text-sm font-medium" style={{ color: '#e2e8f0' }}>
+                Número de Estudante
+              </label>
+              <input
+                id="studentNumber"
+                name="studentNumber"
+                type="text"
+                required
+                className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ 
+                  backgroundColor: '#475569', 
+                  border: '1px solid #64748b',
+                  color: '#ffffff'
+                }}
+                value={studentNumber}
+                onChange={(e) => setStudentNumber(e.target.value)}
+                placeholder="Ex: 20230001"
+              />
+            </div>
+          )}
+
+          {userType === 'student' && (
+            <div>
+              <label htmlFor="teamId" className="block text-sm font-medium" style={{ color: '#e2e8f0' }}>
+                Grupo
+              </label>
+              <select
+                id="teamId"
+                name="teamId"
+                required
+                className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ 
+                  backgroundColor: '#475569', 
+                  border: '1px solid #64748b',
+                  color: '#ffffff'
+                }}
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="">Selecione o seu grupo</option>
+                {teamOptions.map(num => (
+                  <option key={num} value={num}>Grupo {num}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label htmlFor="email" className="block text-sm font-medium" style={{ color: '#e2e8f0' }}>
               Email
@@ -92,7 +204,7 @@ const PaginaRegisto = () => {
               type="email"
               autoComplete="email"
               required
-              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-maria-green-500"
+              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               style={{ 
                 backgroundColor: '#475569', 
                 border: '1px solid #64748b',
@@ -114,7 +226,7 @@ const PaginaRegisto = () => {
               type="password"
               autoComplete="new-password"
               required
-              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-maria-green-500"
+              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               style={{ 
                 backgroundColor: '#475569', 
                 border: '1px solid #64748b',
@@ -136,7 +248,7 @@ const PaginaRegisto = () => {
               type="password"
               autoComplete="new-password"
               required
-              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-maria-green-500"
+              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               style={{ 
                 backgroundColor: '#475569', 
                 border: '1px solid #64748b',
@@ -146,29 +258,6 @@ const PaginaRegisto = () => {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Repita a palavra-passe"
             />
-          </div>
-
-          <div>
-            <label htmlFor="role" className="block text-sm font-medium" style={{ color: '#e2e8f0' }}>
-              Papel
-            </label>
-            <select
-              id="role"
-              name="role"
-              required
-              className="w-full px-3 py-2 mt-1 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-maria-green-500"
-              style={{ 
-                backgroundColor: '#475569', 
-                border: '1px solid #64748b',
-                color: '#ffffff'
-              }}
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              <option value="doente">Doente</option>
-              <option value="cuidador/familiar/amigo">Cuidador/Familiar/Amigo</option>
-              <option value="profissional de saúde">Profissional de Saúde</option>
-            </select>
           </div>
 
           {error && (

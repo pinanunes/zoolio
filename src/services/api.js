@@ -2,7 +2,7 @@ import axios from 'axios';
 import { supabase } from '../supabaseClient';
 
 // n8n webhook URLs (now secure HTTPS)
-const CHAT_WEBHOOK_URL = 'https://manuelnunes.duckdns.org/webhook/0617abad-ef75-4320-8231-1e4468ce6a83';
+const CHAT_WEBHOOK_URL = 'https://manuelnunes.duckdns.org/webhook/b02fc3cb-3e32-45a5-9cfe-fc5ac994a587';
 const FEEDBACK_WEBHOOK_URL = 'https://manuelnunes.duckdns.org/webhook/429f2428-e083-4d60-84a1-610d4808b0a3';
 
 // Secure API key for webhook authentication
@@ -36,7 +36,7 @@ export const sendChatMessage = async (message, user, config = null, customTimeou
       message: message,
       user: userData || user, // Use Supabase user data if available, fallback to passed user
       timestamp: new Date().toISOString(),
-      source: 'maria-chat-supabase'
+      source: 'zoolio-chat-supabase'
     };
 
     // Add configuration if provided

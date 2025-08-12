@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import botSeniorAvatar from '../assets/bot_senior_avatar.svg';
 
 const PaginaLogin = () => {
   const navigate = useNavigate();
@@ -29,12 +30,16 @@ const PaginaLogin = () => {
     <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
       <div className="w-full max-w-md p-8 space-y-6 rounded-lg shadow-lg" style={{ backgroundColor: '#334155' }}>
         <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
-            <span className="text-white font-bold text-2xl">M</span>
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full overflow-hidden shadow-lg">
+            <img 
+              src={botSeniorAvatar} 
+              alt="Zoolio Avatar" 
+              className="w-full h-full object-contain"
+            />
           </div>
           <h2 className="text-2xl font-bold" style={{ color: '#ffffff' }}>Bem-vindo de volta</h2>
           <p className="mt-2 text-sm" style={{ color: '#cbd5e1' }}>
-            Inicie sessão na sua conta MarIA
+            Inicie sessão na sua conta Zoolio
           </p>
         </div>
 
@@ -97,9 +102,9 @@ const PaginaLogin = () => {
             </div>
 
             <div className="text-sm">
-              <a href="#" className="font-medium hover:underline transition-colors" style={{ color: '#4ade80' }}>
+              <Link to="/forgot-password" className="font-medium hover:underline transition-colors" style={{ color: '#4ade80' }}>
                 Esqueceu a palavra-passe?
-              </a>
+              </Link>
             </div>
           </div>
 

@@ -1,7 +1,8 @@
 import React from 'react';
 import { marked } from 'marked';
+import { getBotDisplayInfo } from '../config/bots';
 
-const ChatMessage = ({ message, onFeedback }) => {
+const ChatMessage = ({ message, onFeedback, user }) => {
   const { type, content, timestamp, id, originalQuestion } = message;
 
   // Função para processar markdown e citações no texto do bot
@@ -61,22 +62,27 @@ const ChatMessage = ({ message, onFeedback }) => {
   };
 
   const handlePositiveFeedback = () => {
-    onFeedback({
+    console.log('Positive feedback clicked for message:', id);
+    const feedbackData = {
+      messageId: id,
       question: originalQuestion,
-      answer: content.answer || content,
-      feedback: {
-        rating: 'positivo'
-      }
-    });
+      answer: typeof content === 'string' ? content : (content.answer || content.message || content.text || JSON.stringify(content)),
+      type: 'positive'
+    };
+    console.log('Feedback data:', feedbackData);
+    onFeedback(feedbackData);
   };
 
   const handleNegativeFeedback = () => {
-    onFeedback({
+    console.log('Negative feedback clicked for message:', id);
+    const feedbackData = {
       messageId: id,
       question: originalQuestion,
-      answer: content.answer || content,
+      answer: typeof content === 'string' ? content : (content.answer || content.message || content.text || JSON.stringify(content)),
       type: 'negative'
-    });
+    };
+    console.log('Feedback data:', feedbackData);
+    onFeedback(feedbackData);
   };
 
   if (type === 'user') {
@@ -96,6 +102,25 @@ const ChatMessage = ({ message, onFeedback }) => {
   }
 
   if (type === 'bot') {
+    // Get bot information
+    const botInfo = getBotDisplayInfo(message.botId);
+    
+    // Get quota information for this specific bot
+    const getQuotaForBot = () => {
+      if (!user || !user.feedbackQuotas || user.role !== 'student') return null;
+      
+      const botId = message.botId;
+      if (botId === 'bot_junior' && user.feedbackQuotas.bot_junior) {
+        return user.feedbackQuotas.bot_junior;
+      } else if (botId === 'bot_senior' && user.feedbackQuotas.bot_senior) {
+        return user.feedbackQuotas.bot_senior;
+      }
+      return null;
+    };
+
+    const quotaInfo = getQuotaForBot();
+    const hasQuotaRemaining = quotaInfo && quotaInfo.remaining > 0;
+    
     // Safely extract the answer text with fallbacks
     let answerText;
     try {
@@ -119,12 +144,32 @@ const ChatMessage = ({ message, onFeedback }) => {
           {/* Avatar e mensagem do bot */}
           <div className="flex items-start space-x-3">
             <div className="shrink-0">
-              <div className="w-8 h-8 bg-linear-to-br from-maria-green-400 to-maria-green-600 rounded-full flex items-center justify-center shadow-lg">
-                <span className="text-white text-sm font-medium">M</span>
+              <div 
+                className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
+                style={{ backgroundColor: botInfo.color }}
+              >
+                {botInfo.icon ? (
+                  <img 
+                    src={botInfo.icon} 
+                    alt={botInfo.name}
+                    className="w-7 h-7 rounded-full object-contain"
+                  />
+                ) : (
+                  <span className="text-white text-sm font-medium">
+                    {botInfo.name.charAt(0)}
+                  </span>
+                )}
               </div>
             </div>
             
             <div className="flex-1">
+              {/* Bot name */}
+              <div className="mb-1">
+                <span className="text-xs font-medium" style={{ color: botInfo.color }}>
+                  {botInfo.name}
+                </span>
+              </div>
+              
               {/* Mensagem do bot */}
               <div className="px-4 py-3 rounded-2xl shadow-lg" style={{ backgroundColor: '#334155', border: '1px solid #475569' }}>
                 <div 
@@ -165,18 +210,49 @@ const ChatMessage = ({ message, onFeedback }) => {
               <div className="flex items-center space-x-2 mt-2 ml-4">
                 <button
                   onClick={handlePositiveFeedback}
-                  className="p-1.5 text-maria-gray-500 hover:text-maria-green-400 transition-colors rounded-md hover:bg-maria-gray-700"
-                  title="Esta resposta foi útil"
+                  disabled={!hasQuotaRemaining}
+                  className={`p-1.5 transition-colors rounded-md ${
+                    hasQuotaRemaining 
+                      ? 'text-maria-gray-500 hover:text-maria-green-400 hover:bg-maria-gray-700 cursor-pointer' 
+                      : 'text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
+                  title={hasQuotaRemaining ? "Esta resposta foi útil" : "Quota de feedback esgotada"}
                 >
                   <span className="text-lg">👍</span>
                 </button>
                 <button
                   onClick={handleNegativeFeedback}
-                  className="p-1.5 text-maria-gray-500 hover:text-maria-pink-400 transition-colors rounded-md hover:bg-maria-gray-700"
-                  title="Esta resposta não foi útil"
+                  disabled={!hasQuotaRemaining}
+                  className={`p-1.5 transition-colors rounded-md ${
+                    hasQuotaRemaining 
+                      ? 'text-maria-gray-500 hover:text-maria-pink-400 hover:bg-maria-gray-700 cursor-pointer' 
+                      : 'text-gray-600 cursor-not-allowed opacity-50'
+                  }`}
+                  title={hasQuotaRemaining ? "Esta resposta não foi útil" : "Quota de feedback esgotada"}
                 >
                   <span className="text-lg">👎</span>
                 </button>
+                
+                {/* Quota display */}
+                {quotaInfo && (
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    quotaInfo.remaining > 0 
+                      ? 'bg-blue-900 text-blue-200 border border-blue-700'
+                      : 'bg-red-900 text-red-200 border border-red-700'
+                  }`}>
+                    {quotaInfo.remaining > 0 
+                      ? `${quotaInfo.remaining}/${quotaInfo.max} restantes`
+                      : 'Quota esgotada'
+                    }
+                  </span>
+                )}
+                
+                {/* Show quota info for non-students (professors/admins) */}
+                {user && user.role !== 'student' && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-green-900 text-green-200 border border-green-700">
+                    Sem limite
+                  </span>
+                )}
               </div>
             </div>
           </div>
