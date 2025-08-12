@@ -8,7 +8,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  base: './',
   build: {
     assetsDir: 'assets',
     rollupOptions: {

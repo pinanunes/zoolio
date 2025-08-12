@@ -1,4 +1,5 @@
 import React from 'react';
+import fmvLogo from '../assets/fmv_logo.png';
 
 const Footer = () => {
   return (
@@ -10,7 +11,7 @@ const Footer = () => {
         {/* FMV Logo */}
         <div className="mb-4">
           <img 
-            src="/src/assets/fmv_logo.png" 
+            src={fmvLogo} 
             alt="Faculdade de Medicina Veterinária - Universidade de Lisboa"
             className="h-12 mx-auto opacity-80 hover:opacity-100 transition-opacity"
           />
