@@ -28,40 +28,41 @@ const ProgressLeaderboard = () => {
 
       setLeaderboard(teams || []);
 
-      // Get user's team info
+      // Get user's team info - simplified approach
       const { data: profile } = await supabase
         .from('profiles')
-        .select(`
-          team_id,
-          teams (
-            id,
-            team_name,
-            points,
-            is_sheet_validated
-          )
-        `)
+        .select('team_id')
         .eq('id', user.id)
         .single();
 
-      if (profile?.teams) {
-        setUserTeam(profile.teams);
-        
-        // Calculate team rank
-        const teamRank = teams.findIndex(team => team.id === profile.teams.id) + 1;
-        
-        // Calculate personal contribution (simplified - could be more complex)
-        const { data: userLogs } = await supabase
-          .from('chat_logs')
-          .select('feedback')
-          .eq('user_id', user.id)
-          .not('feedback', 'is', null);
+      if (profile?.team_id) {
+        // Get team details separately
+        const { data: teamData } = await supabase
+          .from('teams')
+          .select('id, team_name, points, has_submitted_sheet')
+          .eq('id', profile.team_id)
+          .single();
 
-        const personalContribution = userLogs?.filter(log => log.feedback === 1).length || 0;
+        if (teamData) {
+          setUserTeam(teamData);
+          
+          // Calculate team rank
+          const teamRank = teams.findIndex(team => team.id === teamData.id) + 1;
+        
+          // Calculate personal contribution (simplified - could be more complex)
+          const { data: userLogs } = await supabase
+            .from('chat_logs')
+            .select('feedback')
+            .eq('user_id', user.id)
+            .not('feedback', 'is', null);
 
-        setUserStats({
-          personalContribution,
-          teamRank
-        });
+          const personalContribution = userLogs?.filter(log => log.feedback === 1).length || 0;
+
+          setUserStats({
+            personalContribution,
+            teamRank
+          });
+        }
       }
 
     } catch (error) {

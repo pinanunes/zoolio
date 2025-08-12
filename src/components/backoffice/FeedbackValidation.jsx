@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { BOTS } from '../../config/bots';
+import toast, { Toaster } from 'react-hot-toast';
 
 const FeedbackValidation = () => {
   const { user } = useAuth();
@@ -217,10 +218,16 @@ const FeedbackValidation = () => {
       await loadFeedbackLogs();
       await loadGlobalStats(); // Update global stats after validation
       
-      alert('Feedback validado com sucesso!');
+      toast.success('Feedback validado com sucesso!', {
+        duration: 3000,
+        position: 'top-right',
+      });
     } catch (error) {
       console.error('Error validating feedback:', error);
-      alert('Erro ao validar feedback: ' + error.message);
+      toast.error('Erro ao validar feedback: ' + error.message, {
+        duration: 4000,
+        position: 'top-right',
+      });
     } finally {
       setProcessing(prev => ({ ...prev, [logId]: false }));
     }
@@ -249,6 +256,7 @@ const FeedbackValidation = () => {
 
   return (
     <div>
+      <Toaster />
       <h1 className="text-3xl font-bold text-white mb-6">Validação de Feedback</h1>
       
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
@@ -501,6 +509,55 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
           )}
         </div>
       </div>
+
+      {/* Student's Original Feedback */}
+      {log.positive_feedback_details && (
+        <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
+          <h4 className="text-white font-medium mb-3">💬 Feedback do Estudante</h4>
+          
+          {/* Selected Options */}
+          {log.positive_feedback_details.options && (
+            <div className="mb-3">
+              <p className="text-gray-300 text-sm mb-2"><strong>Opções selecionadas:</strong></p>
+              <div className="flex flex-wrap gap-2">
+                {log.positive_feedback_details.options.informacaoCorreta && (
+                  <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">
+                    ✓ Informação correta
+                  </span>
+                )}
+                {log.positive_feedback_details.options.informacaoCompleta && (
+                  <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
+                    ✓ Informação completa
+                  </span>
+                )}
+                {log.positive_feedback_details.options.aprendiAlgo && (
+                  <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">
+                    ✓ Aprendi algo novo
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {/* Written Comment */}
+          {log.positive_feedback_details.comment && log.positive_feedback_details.comment.trim() && (
+            <div>
+              <p className="text-gray-300 text-sm mb-1"><strong>Comentário escrito:</strong></p>
+              <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
+                "{log.positive_feedback_details.comment}"
+              </p>
+            </div>
+          )}
+          
+          {/* No feedback details */}
+          {(!log.positive_feedback_details.comment || !log.positive_feedback_details.comment.trim()) && 
+           (!log.positive_feedback_details.options || Object.values(log.positive_feedback_details.options).every(v => !v)) && (
+            <p className="text-gray-400 text-sm italic">
+              O estudante não forneceu detalhes adicionais sobre o feedback.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Existing Validation */}
       {existingValidation && (
