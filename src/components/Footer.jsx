@@ -13,7 +13,7 @@ const Footer = () => {
           <img 
             src={fmvLogo} 
             alt="Faculdade de Medicina Veterinária - Universidade de Lisboa"
-            className="h-12 mx-auto opacity-80 hover:opacity-100 transition-opacity"
+            className="h-18 mx-auto opacity-80 hover:opacity-100 transition-opacity"
           />
         </div>
         
