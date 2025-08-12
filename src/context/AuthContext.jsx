@@ -150,32 +150,98 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // Get initial session
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const userProfile = await fetchUserProfile(session.user);
-        setUser(userProfile);
-      }
-      setLoading(false);
-    };
+    let isMounted = true;
+    let authSubscription = null;
 
-    getSession();
+    const initializeAuth = async () => {
+      try {
+        console.log('🔄 Initializing authentication...');
+        
+        // Get initial session with timeout
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session check timeout')), 10000)
+        );
+        
+        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
+        
+        if (error) {
+          console.error('❌ Session check error:', error);
+          if (isMounted) {
+            setLoading(false);
+          }
+          return;
+        }
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
+        console.log('📋 Initial session check:', session ? 'Session found' : 'No session');
+
+        if (session?.user && isMounted) {
+          console.log('👤 Fetching user profile for:', session.user.email);
           const userProfile = await fetchUserProfile(session.user);
-          setUser(userProfile);
-        } else {
+          if (isMounted) {
+            setUser(userProfile);
+          }
+        } else if (isMounted) {
           setUser(null);
         }
-        setLoading(false);
-      }
-    );
 
-    return () => subscription.unsubscribe();
+        // Set up auth state listener
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, session) => {
+            console.log('🔔 Auth state change:', event, session ? 'Session exists' : 'No session');
+            
+            if (!isMounted) return;
+
+            try {
+              if (session?.user) {
+                console.log('👤 Auth change - fetching profile for:', session.user.email);
+                const userProfile = await fetchUserProfile(session.user);
+                if (isMounted) {
+                  setUser(userProfile);
+                }
+              } else {
+                console.log('🚪 Auth change - user logged out');
+                if (isMounted) {
+                  setUser(null);
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error in auth state change handler:', error);
+              if (isMounted) {
+                setUser(null);
+              }
+            }
+            
+            if (isMounted) {
+              setLoading(false);
+            }
+          }
+        );
+
+        authSubscription = subscription;
+
+      } catch (error) {
+        console.error('❌ Auth initialization error:', error);
+        if (isMounted) {
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    initializeAuth();
+
+    // Cleanup function
+    return () => {
+      console.log('🧹 Cleaning up auth context');
+      isMounted = false;
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
+    };
   }, []);
 
   const login = async (email, password) => {

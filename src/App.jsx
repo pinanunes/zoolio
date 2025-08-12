@@ -64,9 +64,20 @@ function App() {
       <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
         <div className="text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg animate-pulse" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
-            <span className="text-white font-bold text-2xl">M</span>
+            <span className="text-white font-bold text-2xl">Z</span>
           </div>
-          <p className="text-white">A carregar...</p>
+          <p className="text-white text-lg mb-2">A verificar sessão...</p>
+          <p className="text-gray-400 text-sm">
+            Se esta mensagem persistir, tente atualizar a página
+          </p>
+          <div className="mt-4">
+            <button 
+              onClick={() => window.location.reload()} 
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors"
+            >
+              Atualizar Página
+            </button>
+          </div>
         </div>
       </div>
     );
