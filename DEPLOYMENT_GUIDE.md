@@ -47,7 +47,7 @@ Antes de fazer o deploy, **DEVE** configurar as variáveis de ambiente:
 2. Adicione as seguintes variáveis:
 
 ```
-VITE_SUPABASE_URL = https://bhpelimxagpohziqcufh.supabase.co
+VITE_SUPABASE_URL = https://bqdirpftoebxrsulwcgu.supabase.co
 VITE_SUPABASE_ANON_KEY = [SUA_CHAVE_ANON_DO_SUPABASE]
 ```
 
@@ -128,7 +128,7 @@ A aplicação inclui vários scripts SQL que devem ser executados no Supabase:
 ## 🌐 URLs Importantes
 
 - **Repositório GitHub:** https://github.com/pinanunes/zoolio
-- **Supabase Project:** https://bhpelimxagpohziqcufh.supabase.co
+- **Supabase Project:** https://bqdirpftoebxrsulwcgu.supabase.co
 - **Netlify Dashboard:** https://app.netlify.com (após login)
 
 ## 📞 Suporte

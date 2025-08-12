@@ -11,9 +11,9 @@
   status = 200
 
 [context.production.environment]
-  VITE_SUPABASE_URL = "https://bhpelimxagpohziqcufh.supabase.co"
+  VITE_SUPABASE_URL = "https://bqdirpftoebxrsulwcgu.supabase.co"
   # VITE_SUPABASE_ANON_KEY will be set in Netlify dashboard for security
 
 [context.deploy-preview.environment]
-  VITE_SUPABASE_URL = "https://bhpelimxagpohziqcufh.supabase.co"
+  VITE_SUPABASE_URL = "https://bqdirpftoebxrsulwcgu.supabase.co"
   # VITE_SUPABASE_ANON_KEY will be set in Netlify dashboard for security
