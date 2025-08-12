@@ -1,3 +1,9 @@
+// Import bot avatars
+import botJuniorAvatar from '../assets/bot_junior_avatar.svg';
+import botSeniorAvatar from '../assets/bot_senior_avatar.svg';
+import botPubmedAvatar from '../assets/bot_pubmed_avatar.svg';
+import botLLMAvatar from '../assets/bot_LLM_avatar.svg';
+
 // Central configuration for all bots in the system
 export const BOTS = {
   bot_junior: {
@@ -5,7 +11,7 @@ export const BOTS = {
     name: 'Bot Junior',
     description: 'Bot inicial com respostas básicas e algumas incertezas',
     endpoint: 'https://manuelnunes.duckdns.org/webhook/b02fc3cb-3e32-45a5-9cfe-fc5ac994a587',
-    icon: '/src/assets/bot_junior_avatar.svg',
+    icon: botJuniorAvatar,
     color: '#FFA500', // Orange for junior
     phase: 1,
     requiresSheetSubmitted: false,
@@ -16,7 +22,7 @@ export const BOTS = {
     name: 'Bot Senior',
     description: 'Bot treinado com informação compilada pelos estudantes',
     endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828ab',
-    icon: '/src/assets/bot_senior_avatar.svg',
+    icon: botSeniorAvatar,
     color: '#4CAF50', // Green for senior
     phase: 2,
     requiresSheetSubmitted: true,
@@ -27,7 +33,7 @@ export const BOTS = {
     name: 'Bot PubMed',
     description: 'Bot especializado em literatura científica',
     endpoint: 'https://manuelnunes.duckdns.org/webhook/f889d515-b0c4-45fa-8fff-1b4e099775db',
-    icon: '/src/assets/bot_pubmed_avatar.svg',
+    icon: botPubmedAvatar,
     color: '#2196F3', // Blue for PubMed
     phase: 3,
     requiresSheetSubmitted: true,
@@ -38,7 +44,7 @@ export const BOTS = {
     name: 'Bot LLM',
     description: 'Bot de linguagem avançado',
     endpoint: 'https://manuelnunes.duckdns.org/webhook/0cd725d3-7bd5-4ed9-83dc-1e9221747484',
-    icon: '/src/assets/bot_LLM_avatar.svg',
+    icon: botLLMAvatar,
     color: '#9C27B0', // Purple for LLM
     phase: 3,
     requiresSheetSubmitted: true,
