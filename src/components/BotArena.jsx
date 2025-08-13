@@ -12,49 +12,20 @@ const BotArena = () => {
     bot3: { text: '', loading: false }
   });
   const [selectedBot, setSelectedBot] = useState(null);
-  const [isUnlocked, setIsUnlocked] = useState(false);
-  const [teamInfo, setTeamInfo] = useState(null);
-  const [arenaBots, setArenaBots] = useState([]);
 
-  useEffect(() => {
-    checkUnlockStatus();
-  }, [user]);
-
-  const checkUnlockStatus = async () => {
-    try {
-      // Get user's team info and check if review is submitted
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select(`
-          team_id,
-          teams (
-            id,
-            team_name,
-            has_submitted_sheet,
-            has_submitted_review
-          )
-        `)
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.teams) {
-        setTeamInfo(profile.teams);
-        const unlocked = profile.teams.has_submitted_review;
-        setIsUnlocked(unlocked);
-        
-        if (unlocked) {
-          // Get available arena bots
-          const availableBots = getArenaBotsForTeam(
-            profile.teams.has_submitted_sheet,
-            profile.teams.has_submitted_review
-          );
-          setArenaBots(availableBots);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking unlock status:', error);
-    }
+  // Determine unlock status and available bots directly from user context
+  const isProfessorOrAdmin = user?.role === 'professor' || user?.role === 'admin';
+  const teamProgress = {
+    hasSubmittedSheet: user?.team?.fichaEntregue || false,
+    hasSubmittedReview: user?.team?.revisaoEntregue || false
   };
+
+  const isUnlocked = isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview);
+  
+  const arenaBots = isUnlocked ? getArenaBotsForTeam(
+    teamProgress.hasSubmittedSheet,
+    teamProgress.hasSubmittedReview
+  ) : [];
 
   const sendToAllBots = async () => {
     if (!question.trim() || !isUnlocked || arenaBots.length === 0) return;
@@ -160,16 +131,16 @@ const BotArena = () => {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Arena de Bots Bloqueada</h2>
           <p className="text-gray-300 max-w-md mx-auto">
-            A Arena de Bots só fica disponível após a sua equipa submeter a revisão e esta ser validada por um professor.
+            A Arena de Bots só fica disponível após a sua equipa submeter a ficha informativa e a revisão da outra equipa.
           </p>
-          {teamInfo && (
+          {user?.team && (
             <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
               <p className="text-white">
-                <strong>Equipa:</strong> {teamInfo.team_name}
+                <strong>Equipa:</strong> {user.team.name}
               </p>
               <div className="text-gray-300 text-sm mt-2 space-y-1">
-                <p>Ficha Informativa: {teamInfo.has_submitted_sheet ? 'Submetida ✅' : 'Pendente ⏳'}</p>
-                <p>Revisão: {teamInfo.has_submitted_review ? 'Submetida ✅' : 'Pendente ⏳'}</p>
+                <p>Ficha Informativa: {teamProgress.hasSubmittedSheet ? 'Submetida ✅' : 'Pendente ⏳'}</p>
+                <p>Revisão: {teamProgress.hasSubmittedReview ? 'Submetida ✅' : 'Pendente ⏳'}</p>
               </div>
             </div>
           )}
