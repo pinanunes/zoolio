@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient';
 import { getArenaBotsForTeam, BOTS } from '../config/bots';
 
 const BotArena = () => {
-  const { user } = useAuth();
+  const { user, refreshUserProfile } = useAuth();
   const [question, setQuestion] = useState('');
   const [responses, setResponses] = useState({
     bot1: { text: '', loading: false },
@@ -135,6 +135,9 @@ const BotArena = () => {
           answer_3: responses.bot3.text,
           voted_best_answer: botNumber
         }]);
+
+      // Refresh user profile to update quota
+      await refreshUserProfile();
 
     } catch (error) {
       console.error('Error saving comparative chat log:', error);

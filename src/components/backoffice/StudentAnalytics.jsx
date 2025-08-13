@@ -3,7 +3,9 @@ import { supabase } from '../../supabaseClient';
 
 const StudentAnalytics = () => {
   const [students, setStudents] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [updatingStudent, setUpdatingStudent] = useState(null);
   const [stats, setStats] = useState({
     totalStudents: 0,
     studentsWithTeam: 0,
@@ -14,6 +16,7 @@ const StudentAnalytics = () => {
 
   useEffect(() => {
     loadStudentAnalytics();
+    loadTeams();
   }, []);
 
   const loadStudentAnalytics = async () => {
@@ -47,6 +50,44 @@ const StudentAnalytics = () => {
         : 0
     };
     setStats(stats);
+  };
+
+  const loadTeams = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('id, team_name')
+        .order('team_name');
+      
+      if (error) throw error;
+      
+      setTeams(data || []);
+    } catch (error) {
+      console.error('Error loading teams:', error);
+    }
+  };
+
+  const handleTeamChange = async (studentId, newTeamId) => {
+    try {
+      setUpdatingStudent(studentId);
+      
+      // Update the student's team in the database
+      const { error } = await supabase
+        .from('profiles')
+        .update({ team_id: newTeamId === '' ? null : parseInt(newTeamId) })
+        .eq('id', studentId);
+      
+      if (error) throw error;
+      
+      // Reload the student analytics to reflect the change
+      await loadStudentAnalytics();
+      
+    } catch (error) {
+      console.error('Error updating student team:', error);
+      alert('Erro ao atualizar grupo do estudante: ' + error.message);
+    } finally {
+      setUpdatingStudent(null);
+    }
   };
 
   const exportToCSV = () => {
@@ -134,6 +175,10 @@ const StudentAnalytics = () => {
           Esta página apresenta uma análise detalhada de todos os estudantes, incluindo métricas de participação, 
           feedbacks dados e pontuações obtidas. Os dados podem ser exportados para CSV para análise externa.
         </p>
+        <p className="text-gray-300 mt-2">
+          <strong>Nova funcionalidade:</strong> Use o dropdown na coluna "GRUPO" para reatribuir estudantes a diferentes grupos. 
+          As alterações são guardadas automaticamente na base de dados.
+        </p>
       </div>
 
       {/* Statistics */}
@@ -190,8 +235,28 @@ const StudentAnalytics = () => {
                 {/* Student Number */}
                 <div className="text-gray-300">{student.student_number || 'N/A'}</div>
                 
-                {/* Team */}
-                <div className="text-gray-300">{student.team_name || 'Sem grupo'}</div>
+                {/* Team - Dropdown for reassignment */}
+                <div className="relative">
+                  {updatingStudent === student.student_id ? (
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 bg-green-400 rounded-full animate-spin mr-2"></div>
+                      <span className="text-gray-300 text-sm">Atualizando...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={student.team_id || ''}
+                      onChange={(e) => handleTeamChange(student.student_id, e.target.value)}
+                      className="bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 focus:border-green-500 focus:outline-none min-w-[120px]"
+                    >
+                      <option value="">Sem grupo</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.team_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 
                 {/* Assigned Disease */}
                 <div className="text-gray-300">{student.assigned_disease_name || 'Não atribuída'}</div>

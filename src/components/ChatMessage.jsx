@@ -114,6 +114,8 @@ const ChatMessage = ({ message, onFeedback, user }) => {
         return user.feedbackQuotas.bot_junior;
       } else if (botId === 'bot_senior' && user.feedbackQuotas.bot_senior) {
         return user.feedbackQuotas.bot_senior;
+      } else if (botId === 'bot_arena' && user.feedbackQuotas.bot_arena) {
+        return user.feedbackQuotas.bot_arena;
       }
       return null;
     };

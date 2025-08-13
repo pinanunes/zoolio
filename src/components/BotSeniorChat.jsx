@@ -25,6 +25,22 @@ const BotSeniorChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const getDiseaseOutline = (diseaseId) => {
+    if (user?.role !== 'student' || !user.team) return 'border-transparent';
+
+    const { team } = user;
+    if (diseaseId === team.assignedDiseaseId) {
+      return 'border-green-500'; // Assigned to my team
+    }
+    if (diseaseId === team.blueTeamDiseaseId) {
+      return 'border-blue-500'; // Assigned to blue team
+    }
+    if (diseaseId === team.redTeam1TargetId || diseaseId === team.redTeam2TargetId) {
+      return 'border-red-500'; // Assigned to red teams
+    }
+    return 'border-transparent';
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -323,9 +339,9 @@ const BotSeniorChat = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-32 overflow-y-auto">
             {diseaseStatus.map((disease) => (
-              <div key={disease.id} className="flex items-center justify-between p-2 rounded" style={{ backgroundColor: '#334155' }}>
+              <div key={disease.id} className={`flex items-center justify-between p-2 rounded border-2 ${getDiseaseOutline(disease.id)}`} style={{ backgroundColor: '#334155' }}>
                 <span className="text-white text-sm font-medium truncate">{disease.name}</span>
-                <span 
+                <span
                   className="text-xs px-2 py-1 rounded-full font-medium"
                   style={{ 
                     backgroundColor: disease.statusColor + '20',
@@ -339,10 +355,21 @@ const BotSeniorChat = () => {
           </div>
         )}
         
-        <div className="mt-3 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>Em Desenvolvimento
-          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1 ml-3"></span>Versão Inicial
-          <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1 ml-3"></span>Versão Revista
+        <div className="mt-3 text-xs text-gray-400 flex flex-wrap gap-x-4 gap-y-2">
+          <div>
+            <span className="font-bold">Legenda de Estado:</span>
+            <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1 ml-2"></span>Em Desenvolvimento
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1 ml-2"></span>Versão Inicial
+            <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1 ml-2"></span>Versão Revista
+          </div>
+          {user?.role === 'student' && (
+            <div>
+              <span className="font-bold">Legenda de Equipa:</span>
+              <span className="inline-block w-3 h-3 border-2 border-green-500 rounded-sm mr-1 ml-2"></span>Sua Doença
+              <span className="inline-block w-3 h-3 border-2 border-blue-500 rounded-sm mr-1 ml-2"></span>Blue Team
+              <span className="inline-block w-3 h-3 border-2 border-red-500 rounded-sm mr-1 ml-2"></span>Red Team
+            </div>
+          )}
         </div>
       </div>
 

@@ -37,7 +37,8 @@ export const AuthProvider = ({ children }) => {
           personalPoints: 0,
           feedbackQuotas: {
             bot_junior: { used: 0, remaining: 5, max: 5 },
-            bot_senior: { used: 0, remaining: 5, max: 5 }
+            bot_senior: { used: 0, remaining: 5, max: 5 },
+            bot_arena: { used: 0, remaining: 5, max: 5 }
           },
           team: null
         };
@@ -48,7 +49,8 @@ export const AuthProvider = ({ children }) => {
       // Get feedback quotas using the new system
       let feedbackQuotas = {
         bot_junior: { used: 0, remaining: 5, max: 5 },
-        bot_senior: { used: 0, remaining: 5, max: 5 }
+        bot_senior: { used: 0, remaining: 5, max: 5 },
+        bot_arena: { used: 0, remaining: 5, max: 5 }
       };
 
       if (profile.role === 'student') {
@@ -66,7 +68,8 @@ export const AuthProvider = ({ children }) => {
         // Professors and admins have unlimited feedback
         feedbackQuotas = {
           bot_junior: { used: 0, remaining: 999, max: 999 },
-          bot_senior: { used: 0, remaining: 999, max: 999 }
+          bot_senior: { used: 0, remaining: 999, max: 999 },
+          bot_arena: { used: 0, remaining: 999, max: 999 }
         };
       }
 
@@ -97,9 +100,11 @@ export const AuthProvider = ({ children }) => {
               assigned_disease_id,
               supervisor_id,
               blue_team_review_target_id,
+              red_team_1_target_id,
+              red_team_2_target_id,
               points,
-              ficha_entregue,
-              revisao_entregue,
+              has_submitted_sheet,
+              has_submitted_review,
               diseases (
                 id,
                 name
@@ -117,13 +122,31 @@ export const AuthProvider = ({ children }) => {
               assignedDiseaseId: teamData.assigned_disease_id,
               supervisorId: teamData.supervisor_id,
               blueTeamReviewTargetId: teamData.blue_team_review_target_id,
-              fichaEntregue: teamData.ficha_entregue || false,
-              revisaoEntregue: teamData.revisao_entregue || false,
+              redTeam1TargetId: teamData.red_team_1_target_id,
+              redTeam2TargetId: teamData.red_team_2_target_id,
+              fichaEntregue: teamData.has_submitted_sheet || false,
+              revisaoEntregue: teamData.has_submitted_review || false,
               disease: teamData.diseases ? {
                 id: teamData.diseases.id,
                 name: teamData.diseases.name
               } : null
             };
+
+            // If there's a blue team target, fetch its disease ID separately
+            if (teamData.blue_team_review_target_id) {
+              const { data: blueTeam, error: blueTeamError } = await supabase
+                .from('teams')
+                .select('assigned_disease_id')
+                .eq('id', teamData.blue_team_review_target_id)
+                .single();
+
+              if (!blueTeamError && blueTeam) {
+                userProfile.team.blueTeamDiseaseId = blueTeam.assigned_disease_id;
+              } else {
+                console.warn('Error fetching blue team disease ID:', blueTeamError);
+              }
+            }
+
           } else {
             console.warn('Error fetching team data:', teamError);
           }
@@ -146,7 +169,8 @@ export const AuthProvider = ({ children }) => {
         personalPoints: 0,
         feedbackQuotas: {
           bot_junior: { used: 0, remaining: 5, max: 5 },
-          bot_senior: { used: 0, remaining: 5, max: 5 }
+          bot_senior: { used: 0, remaining: 5, max: 5 },
+          bot_arena: { used: 0, remaining: 5, max: 5 }
         },
         team: null
       };
@@ -156,6 +180,21 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
     let authSubscription = null;
+
+    // Add window focus listener to refresh user data when user returns to tab
+    const handleWindowFocus = async () => {
+      if (user && isMounted) {
+        console.log('🔄 Window focused - refreshing user profile...');
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser && isMounted) {
+          const refreshedProfile = await fetchUserProfile(authUser);
+          if (isMounted) {
+            setUser(refreshedProfile);
+            console.log('✅ User profile refreshed on window focus');
+          }
+        }
+      }
+    };
 
     const initializeAuth = async () => {
       try {
@@ -184,6 +223,17 @@ export const AuthProvider = ({ children }) => {
           const userProfile = await fetchUserProfile(session.user);
           if (isMounted) {
             setUser(userProfile);
+            // Force refresh user profile to ensure latest data from database
+            console.log('🔄 Refreshing user profile to ensure latest data...');
+            setTimeout(async () => {
+              if (isMounted) {
+                const refreshedProfile = await fetchUserProfile(session.user);
+                if (isMounted) {
+                  setUser(refreshedProfile);
+                  console.log('✅ User profile refreshed with latest data');
+                }
+              }
+            }, 100);
           }
         } else if (isMounted) {
           setUser(null);
@@ -238,10 +288,14 @@ export const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
+    // Add window focus event listener
+    window.addEventListener('focus', handleWindowFocus);
+
     // Cleanup function
     return () => {
       console.log('🧹 Cleaning up auth context');
       isMounted = false;
+      window.removeEventListener('focus', handleWindowFocus);
       if (authSubscription) {
         authSubscription.unsubscribe();
       }

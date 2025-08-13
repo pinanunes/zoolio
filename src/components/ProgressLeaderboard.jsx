@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import UnlockStatusMessage from './UnlockStatusMessage';
 
 const ProgressLeaderboard = () => {
   const { user } = useAuth();
@@ -152,8 +153,8 @@ const ProgressLeaderboard = () => {
             <div className="p-4 rounded-lg text-center" style={{ backgroundColor: '#1e293b' }}>
               <div className="text-2xl mb-2" style={{ color: '#FFA500' }}>🤖</div>
               <h4 className="font-bold text-white mb-1">Bot Junior</h4>
-              <p className="text-xl font-bold" style={{ color: user.feedbackQuotas.junior > 0 ? '#4ade80' : '#ef4444' }}>
-                {user.feedbackQuotas.junior}/5
+              <p className="text-xl font-bold" style={{ color: user.feedbackQuotas.bot_junior.remaining > 0 ? '#4ade80' : '#ef4444' }}>
+                {user.feedbackQuotas.bot_junior.remaining}/{user.feedbackQuotas.bot_junior.max}
               </p>
               <p className="text-xs text-gray-400">restantes</p>
             </div>
@@ -161,8 +162,8 @@ const ProgressLeaderboard = () => {
             <div className="p-4 rounded-lg text-center" style={{ backgroundColor: '#1e293b' }}>
               <div className="text-2xl mb-2" style={{ color: '#4CAF50' }}>🎓</div>
               <h4 className="font-bold text-white mb-1">Bot Senior</h4>
-              <p className="text-xl font-bold" style={{ color: user.feedbackQuotas.senior > 0 ? '#4ade80' : '#ef4444' }}>
-                {user.feedbackQuotas.senior}/5
+              <p className="text-xl font-bold" style={{ color: user.feedbackQuotas.bot_senior.remaining > 0 ? '#4ade80' : '#ef4444' }}>
+                {user.feedbackQuotas.bot_senior.remaining}/{user.feedbackQuotas.bot_senior.max}
               </p>
               <p className="text-xs text-gray-400">restantes</p>
             </div>
@@ -170,8 +171,8 @@ const ProgressLeaderboard = () => {
             <div className="p-4 rounded-lg text-center" style={{ backgroundColor: '#1e293b' }}>
               <div className="text-2xl mb-2" style={{ color: '#2196F3' }}>🏟️</div>
               <h4 className="font-bold text-white mb-1">Arena de Bots</h4>
-              <p className="text-xl font-bold" style={{ color: user.feedbackQuotas.arena > 0 ? '#4ade80' : '#ef4444' }}>
-                {user.feedbackQuotas.arena}/5
+              <p className="text-xl font-bold" style={{ color: (user.feedbackQuotas.bot_arena?.remaining || 0) > 0 ? '#4ade80' : '#ef4444' }}>
+                {user.feedbackQuotas.bot_arena?.remaining || 0}/{user.feedbackQuotas.bot_arena?.max || 5}
               </p>
               <p className="text-xs text-gray-400">restantes</p>
             </div>
@@ -186,26 +187,7 @@ const ProgressLeaderboard = () => {
       )}
 
       {/* Unlock Status */}
-      {userTeam && (
-        <div className="p-4 rounded-lg" style={{ backgroundColor: userTeam.is_sheet_validated ? '#065f46' : '#7c2d12' }}>
-          <div className="flex items-center space-x-3">
-            <div className="text-2xl">
-              {userTeam.is_sheet_validated ? '✅' : '⏳'}
-            </div>
-            <div>
-              <h3 className="font-bold text-white">
-                Estado da Ficha Informativa
-              </h3>
-              <p className="text-sm text-gray-200">
-                {userTeam.is_sheet_validated 
-                  ? 'A sua equipa já submeteu e validou a Ficha Informativa. A Arena de Bots está desbloqueada!'
-                  : 'A sua equipa ainda não submeteu ou validou a Ficha Informativa. A Arena de Bots permanece bloqueada.'
-                }
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <UnlockStatusMessage />
 
       {/* Leaderboard */}
       <div>

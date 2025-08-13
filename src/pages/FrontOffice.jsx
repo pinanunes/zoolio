@@ -16,6 +16,9 @@ const FrontOffice = () => {
   const [activeTab, setActiveTab] = useState('bot-junior');
   const [loading, setLoading] = useState(false);
 
+  // Check if user is professor or admin (bypass gamification)
+  const isProfessorOrAdmin = user?.role === 'professor' || user?.role === 'admin';
+
   // Get team progress directly from user context
   const teamProgress = {
     hasSubmittedSheet: user?.team?.fichaEntregue || false,
@@ -28,45 +31,27 @@ const FrontOffice = () => {
       { id: 'bot-junior', name: 'Bot Junior', icon: '🤖', phase: 1, available: true }
     ];
 
-    // Phase 2: Bot Senior (available after sheet submission)
-    if (teamProgress.hasSubmittedSheet) {
-      tabs.push({ 
-        id: 'bot-senior', 
-        name: 'Bot Senior', 
-        icon: '🎓', 
-        phase: 2, 
-        available: true 
-      });
-    } else {
-      tabs.push({ 
-        id: 'bot-senior', 
-        name: 'Bot Senior', 
-        icon: '🔒', 
-        phase: 2, 
-        available: false,
-        tooltip: 'Disponível após submeter a ficha informativa'
-      });
-    }
+    // Phase 2: Bot Senior
+    const botSeniorAvailable = isProfessorOrAdmin || teamProgress.hasSubmittedSheet;
+    tabs.push({
+      id: 'bot-senior',
+      name: 'Bot Senior',
+      icon: botSeniorAvailable ? '🎓' : '🔒',
+      phase: 2,
+      available: botSeniorAvailable,
+      tooltip: botSeniorAvailable ? '' : 'Disponível após submeter a ficha informativa'
+    });
 
-    // Phase 3: Bot Arena (available after review submission)
-    if (teamProgress.hasSubmittedReview) {
-      tabs.push({ 
-        id: 'arena', 
-        name: 'Arena de Bots', 
-        icon: '⚔️', 
-        phase: 3, 
-        available: true 
-      });
-    } else {
-      tabs.push({ 
-        id: 'arena', 
-        name: 'Arena de Bots', 
-        icon: '🔒', 
-        phase: 3, 
-        available: false,
-        tooltip: 'Disponível após submeter a revisão'
-      });
-    }
+    // Phase 3: Bot Arena
+    const botArenaAvailable = isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview);
+    tabs.push({
+      id: 'arena',
+      name: 'Arena de Bots',
+      icon: botArenaAvailable ? '⚔️' : '🔒',
+      phase: 3,
+      available: botArenaAvailable,
+      tooltip: botArenaAvailable ? '' : 'Disponível após submeter a ficha e a revisão'
+    });
 
     // Always available tabs
     tabs.push({ 
@@ -116,9 +101,9 @@ const FrontOffice = () => {
       case 'bot-junior':
         return <BotJuniorChat />;
       case 'bot-senior':
-        return teamProgress.hasSubmittedSheet ? <BotSeniorChat /> : <LockedPhaseMessage phase={2} />;
+        return (isProfessorOrAdmin || teamProgress.hasSubmittedSheet) ? <BotSeniorChat /> : <LockedPhaseMessage phase={2} />;
       case 'arena':
-        return teamProgress.hasSubmittedReview ? <BotArena /> : <LockedPhaseMessage phase={3} />;
+        return (isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview)) ? <BotArena /> : <LockedPhaseMessage phase={3} />;
       case 'progress':
         return <ProgressLeaderboard />;
       default:

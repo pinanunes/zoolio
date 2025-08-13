@@ -6,7 +6,7 @@ import FeedbackNegativoModal from './FeedbackNegativoModal';
 import { sendChatMessage } from '../services/api';
 
 const ZoolioChat = () => {
-  const { user } = useAuth();
+  const { user, refreshUserProfile } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -181,6 +181,9 @@ const ZoolioChat = () => {
             is_validated: null, // Will be set when professor reviews
             points_awarded: 0 // Will be set when professor reviews
           }]);
+        
+        // Refresh user profile to update quota
+        await refreshUserProfile();
       }
     } catch (error) {
       console.error('Error saving positive feedback:', error);
@@ -242,6 +245,9 @@ const ZoolioChat = () => {
         question: '',
         answer: ''
       });
+
+      // Refresh user profile to update quota
+      await refreshUserProfile();
 
     } catch (error) {
       console.error('Error saving negative feedback:', error);
