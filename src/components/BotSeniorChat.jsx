@@ -214,14 +214,8 @@ const BotSeniorChat = () => {
   const handleFeedback = (feedbackData) => {
     console.log('BotSeniorChat handleFeedback called with:', feedbackData);
     
-    // Check if user has quota remaining for this bot
-    if (user && user.role === 'student' && user.feedbackQuotas && user.feedbackQuotas.bot_senior) {
-      if (user.feedbackQuotas.bot_senior.remaining <= 0) {
-        alert('Quota de feedback esgotada para este bot. Limite: 5 por ano letivo.');
-        return;
-      }
-    }
-    
+    // Set current feedback and open appropriate modal
+    // Note: Quota checking is already handled in ChatMessage component
     setCurrentFeedback(feedbackData);
     
     if (feedbackData.type === 'positive') {
