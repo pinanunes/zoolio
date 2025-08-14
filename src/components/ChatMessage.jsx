@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { marked } from 'marked';
 import { getBotDisplayInfo } from '../config/bots';
 
 const ChatMessage = ({ message, onFeedback, user }) => {
   const { type, content, timestamp, id, originalQuestion } = message;
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   // Função para processar markdown e citações no texto do bot
   const processCitations = (text) => {
@@ -62,7 +63,11 @@ const ChatMessage = ({ message, onFeedback, user }) => {
   };
 
   const handlePositiveFeedback = () => {
+    if (feedbackSubmitted) return; // Prevent double-clicks
+    
     console.log('Positive feedback clicked for message:', id);
+    setFeedbackSubmitted(true);
+    
     const feedbackData = {
       messageId: id,
       question: originalQuestion,
@@ -74,7 +79,11 @@ const ChatMessage = ({ message, onFeedback, user }) => {
   };
 
   const handleNegativeFeedback = () => {
+    if (feedbackSubmitted) return; // Prevent double-clicks
+    
     console.log('Negative feedback clicked for message:', id);
+    setFeedbackSubmitted(true);
+    
     const feedbackData = {
       messageId: id,
       question: originalQuestion,
@@ -212,25 +221,31 @@ const ChatMessage = ({ message, onFeedback, user }) => {
               <div className="flex items-center space-x-2 mt-2 ml-4">
                 <button
                   onClick={handlePositiveFeedback}
-                  disabled={!hasQuotaRemaining}
+                  disabled={!hasQuotaRemaining || feedbackSubmitted}
                   className={`p-1.5 transition-colors rounded-md ${
-                    hasQuotaRemaining 
+                    hasQuotaRemaining && !feedbackSubmitted
                       ? 'text-maria-gray-500 hover:text-maria-green-400 hover:bg-maria-gray-700 cursor-pointer' 
                       : 'text-gray-600 cursor-not-allowed opacity-50'
                   }`}
-                  title={hasQuotaRemaining ? "Esta resposta foi útil" : "Quota de feedback esgotada"}
+                  title={
+                    feedbackSubmitted ? "Feedback já submetido" :
+                    hasQuotaRemaining ? "Esta resposta foi útil" : "Quota de feedback esgotada"
+                  }
                 >
                   <span className="text-lg">👍</span>
                 </button>
                 <button
                   onClick={handleNegativeFeedback}
-                  disabled={!hasQuotaRemaining}
+                  disabled={!hasQuotaRemaining || feedbackSubmitted}
                   className={`p-1.5 transition-colors rounded-md ${
-                    hasQuotaRemaining 
+                    hasQuotaRemaining && !feedbackSubmitted
                       ? 'text-maria-gray-500 hover:text-maria-pink-400 hover:bg-maria-gray-700 cursor-pointer' 
                       : 'text-gray-600 cursor-not-allowed opacity-50'
                   }`}
-                  title={hasQuotaRemaining ? "Esta resposta não foi útil" : "Quota de feedback esgotada"}
+                  title={
+                    feedbackSubmitted ? "Feedback já submetido" :
+                    hasQuotaRemaining ? "Esta resposta não foi útil" : "Quota de feedback esgotada"
+                  }
                 >
                   <span className="text-lg">👎</span>
                 </button>
