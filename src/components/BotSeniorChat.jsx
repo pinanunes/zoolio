@@ -98,6 +98,35 @@ const BotSeniorChat = () => {
         };
       });
 
+      // Custom sorting logic for students
+      if (user?.role === 'student' && user?.team) {
+        const { team } = user;
+        
+        processedDiseases.sort((a, b) => {
+          // Assign priority based on team relationships
+          const getPriority = (diseaseId) => {
+            if (diseaseId === team.assignedDiseaseId) return 1; // Green - Own disease
+            if (diseaseId === team.blueTeamDiseaseId) return 2; // Blue - Review target
+            if (diseaseId === team.redTeam1TargetId || diseaseId === team.redTeam2TargetId) return 3; // Red - Challenge targets
+            return 4; // Other diseases
+          };
+          
+          const priorityA = getPriority(a.id);
+          const priorityB = getPriority(b.id);
+          
+          // If priorities are different, sort by priority
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+          
+          // If same priority (especially for "other diseases"), sort alphabetically
+          return a.name.localeCompare(b.name, 'pt-PT');
+        });
+      } else {
+        // For professors/admins, just sort alphabetically
+        processedDiseases.sort((a, b) => a.name.localeCompare(b.name, 'pt-PT'));
+      }
+
       setDiseaseStatus(processedDiseases);
     } catch (error) {
       console.error('Error loading disease status:', error);

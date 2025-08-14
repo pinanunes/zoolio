@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import NewYearReset from './NewYearReset';
 
 const StudentAnalytics = () => {
   const [students, setStudents] = useState([]);
@@ -168,6 +169,9 @@ const StudentAnalytics = () => {
           <span>Exportar CSV</span>
         </button>
       </div>
+
+      {/* New Year Reset Component */}
+      <NewYearReset />
       
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h2 className="text-lg font-bold text-white mb-2">Descrição</h2>
