@@ -6,6 +6,7 @@ import BotJuniorChat from '../components/BotJuniorChat';
 import BotSeniorChat from '../components/BotSeniorChat';
 import BotArena from '../components/BotArena';
 import ProgressLeaderboard from '../components/ProgressLeaderboard';
+import MyFeedback from './MyFeedback';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { getAvailableBotsForTeam } from '../config/bots';
@@ -61,6 +62,16 @@ const FrontOffice = () => {
       available: true 
     });
 
+    // My Feedback tab (only for students)
+    if (user?.role === 'student') {
+      tabs.push({ 
+        id: 'my-feedback', 
+        name: 'O Meu Feedback', 
+        icon: '📚', 
+        available: true 
+      });
+    }
+
     // Add backoffice tab for professors and admins
     if (user?.role === 'professor' || user?.role === 'admin') {
       tabs.push({ 
@@ -106,6 +117,8 @@ const FrontOffice = () => {
         return (isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview)) ? <BotArena /> : <LockedPhaseMessage phase={3} />;
       case 'progress':
         return <ProgressLeaderboard />;
+      case 'my-feedback':
+        return <MyFeedback />;
       default:
         return <BotJuniorChat />;
     }
