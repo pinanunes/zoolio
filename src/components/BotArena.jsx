@@ -2,16 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { getArenaBotsForTeam, BOTS } from '../config/bots';
+import FormattedArenaResponse from './FormattedArenaResponse';
+import ArenaFeedbackModal from './ArenaFeedbackModal';
 
 const BotArena = () => {
-  const { user, refreshUserProfile } = useAuth();
+  const { user, refreshUserProfile, updateFeedbackQuota } = useAuth();
   const [question, setQuestion] = useState('');
   const [responses, setResponses] = useState({
-    bot1: { text: '', loading: false },
-    bot2: { text: '', loading: false },
-    bot3: { text: '', loading: false }
+    bot1: { text: '', loading: false, responseTime: null },
+    bot2: { text: '', loading: false, responseTime: null },
+    bot3: { text: '', loading: false, responseTime: null }
   });
   const [selectedBot, setSelectedBot] = useState(null);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [selectedBotInfo, setSelectedBotInfo] = useState(null);
 
   // Determine unlock status and available bots directly from user context
   const isProfessorOrAdmin = user?.role === 'professor' || user?.role === 'admin';
@@ -32,15 +36,19 @@ const BotArena = () => {
 
     // Reset responses and set loading states
     setResponses({
-      bot1: { text: '', loading: true },
-      bot2: { text: '', loading: true },
-      bot3: { text: '', loading: true }
+      bot1: { text: '', loading: true, responseTime: null },
+      bot2: { text: '', loading: true, responseTime: null },
+      bot3: { text: '', loading: true, responseTime: null }
     });
     setSelectedBot(null);
+
+    // Record start time for response time tracking
+    const startTime = Date.now();
 
     // Send to all bots simultaneously
     const promises = arenaBots.map(async (bot, index) => {
       const botKey = `bot${index + 1}`;
+      const botStartTime = Date.now();
       
       try {
         const response = await fetch(bot.endpoint, {
@@ -67,6 +75,9 @@ const BotArena = () => {
         const data = await response.json();
         console.log(`${bot.name} response:`, data); // Debug log
         
+        // Calculate response time
+        const responseTime = (Date.now() - botStartTime) / 1000;
+        
         // Extract response text
         const botResponse = data.answer || data.response || data.message || data.text || data.output ||
                            (data.data && (data.data.answer || data.data.response || data.data.message || data.data.text)) ||
@@ -74,14 +85,15 @@ const BotArena = () => {
 
         setResponses(prev => ({
           ...prev,
-          [botKey]: { text: botResponse, loading: false }
+          [botKey]: { text: botResponse, loading: false, responseTime }
         }));
 
       } catch (error) {
         console.error(`Error with ${bot.name}:`, error);
+        const responseTime = (Date.now() - botStartTime) / 1000;
         setResponses(prev => ({
           ...prev,
-          [botKey]: { text: 'Erro ao obter resposta deste bot.', loading: false, isError: true }
+          [botKey]: { text: 'Erro ao obter resposta deste bot.', loading: false, isError: true, responseTime }
         }));
       }
     });
@@ -89,13 +101,30 @@ const BotArena = () => {
     await Promise.all(promises);
   };
 
-  const selectBestBot = async (botNumber) => {
+  const selectBestBot = (botNumber) => {
     if (selectedBot) return; // Already selected
 
-    setSelectedBot(botNumber);
+    // Check quota for students
+    if (user?.role === 'student') {
+      const arenaQuota = user?.feedbackQuotas?.bot_arena?.remaining || 0;
+      if (arenaQuota <= 0) {
+        alert('Não tem mais feedback disponível para a Arena de Bots este ano.');
+        return;
+      }
+    }
 
+    setSelectedBot(botNumber);
+    const selectedBotData = arenaBots[botNumber - 1];
+    setSelectedBotInfo({
+      number: botNumber,
+      name: selectedBotData.name
+    });
+    setIsFeedbackModalOpen(true);
+  };
+
+  const handleFeedbackSubmit = async (justification) => {
     try {
-      // Save to comparative_chat_logs
+      // Save to comparative_chat_logs with justification
       await supabase
         .from('comparative_chat_logs')
         .insert([{
@@ -104,15 +133,27 @@ const BotArena = () => {
           answer_1: responses.bot1.text,
           answer_2: responses.bot2.text,
           answer_3: responses.bot3.text,
-          voted_best_answer: botNumber
+          voted_best_answer: selectedBot,
+          justification: justification
         }]);
+
+      // Update Arena feedback quota for students using the existing quota system
+      if (user?.role === 'student') {
+        await updateFeedbackQuota('bot_arena');
+      }
 
       // Refresh user profile to update quota
       await refreshUserProfile();
 
     } catch (error) {
       console.error('Error saving comparative chat log:', error);
+      throw error;
     }
+  };
+
+  const handleFeedbackModalClose = () => {
+    setIsFeedbackModalOpen(false);
+    setSelectedBotInfo(null);
   };
 
   const handleKeyPress = (e) => {
@@ -155,6 +196,33 @@ const BotArena = () => {
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">Arena de Bots</h2>
         <p className="text-gray-300">Compare as respostas de diferentes bots e vote na melhor resposta.</p>
+      </div>
+
+      {/* User Info and Quota Display */}
+      <div className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+        <div className="flex justify-between items-center">
+          <div>
+            <h3 className="text-lg font-semibold text-white">{user?.name}</h3>
+            <p className="text-sm text-gray-300">
+              {user?.team?.name} • {user?.team?.assignedDisease?.name || 'Doença não atribuída'}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-300">Feedback disponível:</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                (user?.feedbackQuotas?.bot_arena?.remaining || 0) > 0
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-red-600 text-white'
+              }`}>
+                {user?.feedbackQuotas?.bot_arena?.remaining || 0}/{user?.feedbackQuotas?.bot_arena?.max || 5}
+              </span>
+            </div>
+            {user?.role !== 'student' && (
+              <p className="text-xs text-green-400 mt-1">Sem limite (Professor/Admin)</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Question Input */}
@@ -233,7 +301,11 @@ const BotArena = () => {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-gray-300 whitespace-pre-wrap">{response?.text || ''}</p>
+                    <FormattedArenaResponse 
+                      text={response?.text || ''} 
+                      responseTime={response?.responseTime}
+                      messageId={`${bot.id}-${Date.now()}`}
+                    />
                   )}
                 </div>
                 
@@ -258,13 +330,22 @@ const BotArena = () => {
         </div>
       )}
 
-      {selectedBot && (
+      {selectedBot && !isFeedbackModalOpen && (
         <div className="text-center p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <p className="text-green-400 font-medium">
             ✓ Obrigado pelo seu voto! A sua escolha foi registada.
           </p>
         </div>
       )}
+
+      {/* Arena Feedback Modal */}
+      <ArenaFeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={handleFeedbackModalClose}
+        onSubmit={handleFeedbackSubmit}
+        selectedBotNumber={selectedBotInfo?.number}
+        botName={selectedBotInfo?.name}
+      />
     </div>
   );
 };

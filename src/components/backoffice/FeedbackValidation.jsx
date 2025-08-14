@@ -3,9 +3,11 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { BOTS } from '../../config/bots';
 import toast, { Toaster } from 'react-hot-toast';
+import ArenaFeedbackValidation from './ArenaFeedbackValidation';
 
 const FeedbackValidation = () => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'arena'
   const [feedbackLogs, setFeedbackLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState({});
@@ -64,24 +66,38 @@ const FeedbackValidation = () => {
 
   const loadGlobalStats = async () => {
     try {
-      // Get total count of all feedbacks
-      const { count: totalCount } = await supabase
+      // Get total count of chat feedbacks
+      const { count: chatFeedbackCount } = await supabase
         .from('chat_logs')
         .select('*', { count: 'exact', head: true })
         .not('feedback', 'is', null);
 
-      // Get count of validated feedbacks (where is_validated = true)
-      const { count: validatedCount } = await supabase
+      // Get total count of arena feedbacks
+      const { count: arenaFeedbackCount } = await supabase
+        .from('comparative_chat_logs')
+        .select('*', { count: 'exact', head: true })
+        .not('justification', 'is', null);
+
+      // Get count of validated chat feedbacks
+      const { count: validatedChatCount } = await supabase
         .from('feedback_validations')
         .select('*', { count: 'exact', head: true })
         .eq('is_validated', true);
 
-      // Calculate pending (total - validated)
-      const pendingCount = (totalCount || 0) - (validatedCount || 0);
+      // Get count of validated arena feedbacks
+      const { count: validatedArenaCount } = await supabase
+        .from('comparative_chat_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_validated', true)
+        .not('justification', 'is', null);
+
+      const totalCount = (chatFeedbackCount || 0) + (arenaFeedbackCount || 0);
+      const validatedCount = (validatedChatCount || 0) + (validatedArenaCount || 0);
+      const pendingCount = totalCount - validatedCount;
 
       setGlobalStats({
-        total: totalCount || 0,
-        validated: validatedCount || 0,
+        total: totalCount,
+        validated: validatedCount,
         pending: pendingCount
       });
     } catch (error) {
@@ -91,7 +107,8 @@ const FeedbackValidation = () => {
 
   const loadFeedbackLogs = async () => {
     try {
-      let query = supabase
+      // Load regular chat feedback
+      let chatQuery = supabase
         .from('chat_logs')
         .select(`
           *,
@@ -109,9 +126,32 @@ const FeedbackValidation = () => {
         .not('feedback', 'is', null)
         .order('created_at', { ascending: false });
 
-      // Apply team filter
+      // Load Arena feedback
+      let arenaQuery = supabase
+        .from('comparative_chat_logs')
+        .select(`
+          *,
+          profiles (full_name, team_id, teams (team_name))
+        `)
+        .not('justification', 'is', null)
+        .order('created_at', { ascending: false });
+
+      // Apply team filter to both queries
       if (filters.team) {
-        query = query.eq('team_id', parseInt(filters.team));
+        chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
+        
+        // For arena, we need to get user IDs from the selected team
+        const { data: usersInTeam } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('team_id', parseInt(filters.team));
+        
+        if (usersInTeam && usersInTeam.length > 0) {
+          const userIds = usersInTeam.map(user => user.id);
+          arenaQuery = arenaQuery.in('user_id', userIds);
+        } else {
+          arenaQuery = arenaQuery.eq('user_id', 'no-match'); // Force no results
+        }
       }
 
       // Apply disease filter (filter by teams that have this disease)
@@ -123,43 +163,94 @@ const FeedbackValidation = () => {
         
         if (teamsWithDisease && teamsWithDisease.length > 0) {
           const teamIds = teamsWithDisease.map(team => team.id);
-          query = query.in('team_id', teamIds);
+          chatQuery = chatQuery.in('team_id', teamIds);
+          
+          // For arena, get user IDs from these teams
+          const { data: usersInTeams } = await supabase
+            .from('profiles')
+            .select('id')
+            .in('team_id', teamIds);
+          
+          if (usersInTeams && usersInTeams.length > 0) {
+            const userIds = usersInTeams.map(user => user.id);
+            arenaQuery = arenaQuery.in('user_id', userIds);
+          } else {
+            arenaQuery = arenaQuery.eq('user_id', 'no-match'); // Force no results
+          }
         } else {
-          // No teams with this disease, return empty result
           setFeedbackLogs([]);
           return;
         }
       }
 
-      const { data } = await query.limit(100);
+      const [chatData, arenaData] = await Promise.all([
+        chatQuery.limit(50),
+        arenaQuery.limit(50)
+      ]);
       
-      let filteredData = data || [];
+      let allFeedback = [];
       
-      // Apply validation filter (FIXED LOGIC)
+      // Process regular chat feedback
+      if (chatData.data) {
+        const chatFeedback = chatData.data.map(log => ({
+          ...log,
+          type: 'chat',
+          source: log.bot_id === 'bot_junior' ? 'Bot Junior' : 'Bot Senior'
+        }));
+        allFeedback = [...allFeedback, ...chatFeedback];
+      }
+      
+      // Process Arena feedback
+      if (arenaData.data) {
+        const arenaFeedback = arenaData.data.map(log => ({
+          ...log,
+          type: 'arena',
+          source: 'Arena de Bots',
+          // Map Arena fields to match chat log structure for consistency
+          feedback: 1, // Arena feedback is always positive (they selected best answer)
+          answer: `Bot 1: ${log.answer_1}\n\nBot 2: ${log.answer_2}\n\nBot 3: ${log.answer_3}\n\nMelhor resposta selecionada: Bot ${log.voted_best_answer}`,
+          // Create a pseudo feedback_validations structure for consistency
+          feedback_validations: log.is_validated ? [{
+            id: `arena_${log.id}`,
+            comment: log.validation_comment,
+            is_validated: log.is_validated,
+            points_awarded: log.points_awarded,
+            created_at: log.validated_at,
+            professor: { full_name: 'Professor' }
+          }] : [],
+          // Map team info correctly
+          teams: log.profiles?.teams
+        }));
+        allFeedback = [...allFeedback, ...arenaFeedback];
+      }
+      
+      // Sort by creation date
+      allFeedback.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      // Apply validation filter
       if (filters.hasValidation === 'validated') {
-        filteredData = filteredData.filter(log => 
-          log.feedback_validations && 
-          log.feedback_validations.length > 0 && 
-          log.feedback_validations[0].is_validated === true
+        allFeedback = allFeedback.filter(log => 
+          (log.type === 'chat' && log.feedback_validations && log.feedback_validations.length > 0 && log.feedback_validations[0].is_validated === true) ||
+          (log.type === 'arena' && log.is_validated === true)
         );
       } else if (filters.hasValidation === 'pending') {
-        filteredData = filteredData.filter(log => 
-          !log.feedback_validations || 
-          log.feedback_validations.length === 0 || 
-          log.feedback_validations[0].is_validated !== true
+        allFeedback = allFeedback.filter(log => 
+          (log.type === 'chat' && (!log.feedback_validations || log.feedback_validations.length === 0 || log.feedback_validations[0].is_validated !== true)) ||
+          (log.type === 'arena' && log.is_validated !== true)
         );
       }
 
       // Apply keyword filter
       if (filters.keyword && filters.keyword.trim()) {
         const keyword = filters.keyword.trim().toLowerCase();
-        filteredData = filteredData.filter(log => 
+        allFeedback = allFeedback.filter(log => 
           (log.question && log.question.toLowerCase().includes(keyword)) ||
-          (log.answer && log.answer.toLowerCase().includes(keyword))
+          (log.answer && log.answer.toLowerCase().includes(keyword)) ||
+          (log.justification && log.justification.toLowerCase().includes(keyword))
         );
       }
 
-      setFeedbackLogs(filteredData);
+      setFeedbackLogs(allFeedback);
     } catch (error) {
       console.error('Error loading feedback logs:', error);
     }
@@ -259,12 +350,45 @@ const FeedbackValidation = () => {
       <Toaster />
       <h1 className="text-3xl font-bold text-white mb-6">Validação de Feedback</h1>
       
-      <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
-        <h2 className="text-lg font-bold text-white mb-2">Instruções</h2>
-        <p className="text-gray-300">
-          Revise o feedback dado pelos estudantes nas respostas do chat. Adicione comentários e atribua pontos de gamificação para bom feedback.
-        </p>
+      {/* Tab Navigation */}
+      <div className="mb-6 border-b border-gray-600">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'chat'
+                ? 'border-green-500 text-green-400'
+                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            }`}
+          >
+            <span className="mr-2">🤖</span>
+            Bot Junior & Senior
+          </button>
+          <button
+            onClick={() => setActiveTab('arena')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'arena'
+                ? 'border-green-500 text-green-400'
+                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            }`}
+          >
+            <span className="mr-2">⚔️</span>
+            Arena de Bots
+          </button>
+        </nav>
       </div>
+
+      {/* Tab Content */}
+      {activeTab === 'arena' ? (
+        <ArenaFeedbackValidation />
+      ) : (
+        <div>
+          <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+            <h2 className="text-lg font-bold text-white mb-2">Instruções</h2>
+            <p className="text-gray-300">
+              Revise o feedback dado pelos estudantes nas respostas do chat. Adicione comentários e atribua pontos de gamificação para bom feedback.
+            </p>
+          </div>
 
       {/* Filters */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
@@ -385,7 +509,9 @@ const FeedbackValidation = () => {
             <p className="text-sm text-gray-300">Pendentes de validação</p>
           </div>
         </div>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
