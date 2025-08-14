@@ -490,8 +490,11 @@ const BotSeniorChat = () => {
 
       {showNegativeFeedbackModal && (
         <FeedbackNegativoModal
+          isOpen={showNegativeFeedbackModal}
           onSubmit={handleNegativeFeedbackSubmit}
           onClose={() => setShowNegativeFeedbackModal(false)}
+          question={currentFeedback?.question || ''}
+          answer={currentFeedback?.answer || ''}
         />
       )}
     </div>
