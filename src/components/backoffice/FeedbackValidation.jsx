@@ -14,11 +14,9 @@ const FeedbackValidation = () => {
   const [filters, setFilters] = useState({
     team: '',
     hasValidation: 'all', // 'all', 'validated', 'pending'
-    keyword: '',
-    disease: ''
+    keyword: ''
   });
   const [teams, setTeams] = useState([]);
-  const [diseases, setDiseases] = useState([]);
   const [globalStats, setGlobalStats] = useState({
     total: 0,
     validated: 0,
@@ -45,13 +43,6 @@ const FeedbackValidation = () => {
 
       setTeams(teamsData || []);
 
-      // Load diseases
-      const { data: diseasesData } = await supabase
-        .from('diseases')
-        .select('id, name')
-        .order('name');
-
-      setDiseases(diseasesData || []);
       
       // Load global statistics (unfiltered)
       await loadGlobalStats();
@@ -260,40 +251,67 @@ const FeedbackValidation = () => {
     try {
       setProcessing(prev => ({ ...prev, [logId]: true }));
 
-      // Check if validation already exists
-      const existingValidation = feedbackLogs.find(log => log.id === logId)?.feedback_validations?.[0];
+      const log = feedbackLogs.find(l => l.id === logId);
       
-      if (existingValidation) {
-        // Update existing validation
+      if (log?.type === 'arena') {
+        // Handle Arena feedback validation
         const { error } = await supabase
-          .from('feedback_validations')
+          .from('comparative_chat_logs')
           .update({
-            comment: comment,
+            validation_comment: comment,
             points_awarded: pointsAwarded,
-            is_validated: true
+            is_validated: true,
+            validated_by: user.id,
+            validated_at: new Date().toISOString()
           })
-          .eq('id', existingValidation.id);
+          .eq('id', logId);
 
         if (error) throw error;
+
+        // Update team points if points were awarded
+        if (pointsAwarded > 0 && log?.profiles?.team_id) {
+          const { error: pointsError } = await supabase.rpc('increment_team_points', {
+            team_id: log.profiles.team_id,
+            points_to_add: pointsAwarded
+          });
+          
+          if (pointsError) {
+            console.error('Error updating team points:', pointsError);
+          }
+        }
       } else {
-        // Create new validation
-        const { error } = await supabase
-          .from('feedback_validations')
-          .insert([{
-            log_id: logId,
-            professor_id: user.id,
-            comment: comment,
-            points_awarded: pointsAwarded,
-            is_validated: true
-          }]);
+        // Handle regular chat feedback validation
+        const existingValidation = log?.feedback_validations?.[0];
+        
+        if (existingValidation) {
+          // Update existing validation
+          const { error } = await supabase
+            .from('feedback_validations')
+            .update({
+              comment: comment,
+              points_awarded: pointsAwarded,
+              is_validated: true
+            })
+            .eq('id', existingValidation.id);
 
-        if (error) throw error;
-      }
+          if (error) throw error;
+        } else {
+          // Create new validation
+          const { error } = await supabase
+            .from('feedback_validations')
+            .insert([{
+              log_id: logId,
+              professor_id: user.id,
+              comment: comment,
+              points_awarded: pointsAwarded,
+              is_validated: true
+            }]);
 
-      // Update team points if points were awarded
-      if (pointsAwarded > 0) {
-        const log = feedbackLogs.find(l => l.id === logId);
-        if (log?.team_id) {
+          if (error) throw error;
+        }
+
+        // Update team points if points were awarded
+        if (pointsAwarded > 0 && log?.team_id) {
           const { error: pointsError } = await supabase.rpc('increment_team_points', {
             team_id: log.team_id,
             points_to_add: pointsAwarded
@@ -328,8 +346,7 @@ const FeedbackValidation = () => {
     setFilters({
       team: '',
       hasValidation: 'all',
-      keyword: '',
-      disease: ''
+      keyword: ''
     });
   };
 
@@ -393,7 +410,7 @@ const FeedbackValidation = () => {
       {/* Filters */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h3 className="text-lg font-bold text-white mb-4">Filtros</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <select
             value={filters.team}
             onChange={(e) => setFilters(prev => ({ ...prev, team: e.target.value }))}
@@ -423,22 +440,6 @@ const FeedbackValidation = () => {
             <option value="all">Todos os feedbacks</option>
             <option value="pending">Pendentes de validação</option>
             <option value="validated">Já validados</option>
-          </select>
-
-          <select
-            value={filters.disease}
-            onChange={(e) => setFilters(prev => ({ ...prev, disease: e.target.value }))}
-            className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-            style={{ 
-              backgroundColor: '#475569', 
-              border: '1px solid #64748b',
-              color: '#ffffff'
-            }}
-          >
-            <option value="">Todas as doenças</option>
-            {diseases.map(disease => (
-              <option key={disease.id} value={disease.id}>{disease.name}</option>
-            ))}
           </select>
         </div>
         
@@ -637,52 +638,69 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
       </div>
 
       {/* Student's Original Feedback */}
-      {log.positive_feedback_details && (
+      {log.type === 'arena' ? (
+        // Arena feedback - show justification
         <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
-          <h4 className="text-white font-medium mb-3">💬 Feedback do Estudante</h4>
-          
-          {/* Selected Options */}
-          {log.positive_feedback_details.options && (
-            <div className="mb-3">
-              <p className="text-gray-300 text-sm mb-2"><strong>Opções selecionadas:</strong></p>
-              <div className="flex flex-wrap gap-2">
-                {log.positive_feedback_details.options.informacaoCorreta && (
-                  <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">
-                    ✓ Informação correta
-                  </span>
-                )}
-                {log.positive_feedback_details.options.informacaoCompleta && (
-                  <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
-                    ✓ Informação completa
-                  </span>
-                )}
-                {log.positive_feedback_details.options.aprendiAlgo && (
-                  <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">
-                    ✓ Aprendi algo novo
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {/* Written Comment */}
-          {log.positive_feedback_details.comment && log.positive_feedback_details.comment.trim() && (
-            <div>
-              <p className="text-gray-300 text-sm mb-1"><strong>Comentário escrito:</strong></p>
-              <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
-                "{log.positive_feedback_details.comment}"
-              </p>
-            </div>
-          )}
-          
-          {/* No feedback details */}
-          {(!log.positive_feedback_details.comment || !log.positive_feedback_details.comment.trim()) && 
-           (!log.positive_feedback_details.options || Object.values(log.positive_feedback_details.options).every(v => !v)) && (
-            <p className="text-gray-400 text-sm italic">
-              O estudante não forneceu detalhes adicionais sobre o feedback.
+          <h4 className="text-white font-medium mb-3">⚔️ Feedback da Arena</h4>
+          <div className="mb-3">
+            <p className="text-gray-300 text-sm mb-2">
+              <strong>Melhor resposta selecionada:</strong> Bot {log.voted_best_answer}
             </p>
-          )}
+            <p className="text-gray-300 text-sm mb-2"><strong>Justificação do estudante:</strong></p>
+            <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
+              "{log.justification}"
+            </p>
+          </div>
         </div>
+      ) : (
+        // Regular chat feedback
+        log.positive_feedback_details && (
+          <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
+            <h4 className="text-white font-medium mb-3">💬 Feedback do Estudante</h4>
+            
+            {/* Selected Options */}
+            {log.positive_feedback_details.options && (
+              <div className="mb-3">
+                <p className="text-gray-300 text-sm mb-2"><strong>Opções selecionadas:</strong></p>
+                <div className="flex flex-wrap gap-2">
+                  {log.positive_feedback_details.options.informacaoCorreta && (
+                    <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">
+                      ✓ Informação correta
+                    </span>
+                  )}
+                  {log.positive_feedback_details.options.informacaoCompleta && (
+                    <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
+                      ✓ Informação completa
+                    </span>
+                  )}
+                  {log.positive_feedback_details.options.aprendiAlgo && (
+                    <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">
+                      ✓ Aprendi algo novo
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Written Comment */}
+            {log.positive_feedback_details.comment && log.positive_feedback_details.comment.trim() && (
+              <div>
+                <p className="text-gray-300 text-sm mb-1"><strong>Comentário escrito:</strong></p>
+                <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
+                  "{log.positive_feedback_details.comment}"
+                </p>
+              </div>
+            )}
+            
+            {/* No feedback details */}
+            {(!log.positive_feedback_details.comment || !log.positive_feedback_details.comment.trim()) && 
+             (!log.positive_feedback_details.options || Object.values(log.positive_feedback_details.options).every(v => !v)) && (
+              <p className="text-gray-400 text-sm italic">
+                O estudante não forneceu detalhes adicionais sobre o feedback.
+              </p>
+            )}
+          </div>
+        )
       )}
 
       {/* Existing Validation */}

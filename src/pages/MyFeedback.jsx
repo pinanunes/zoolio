@@ -41,16 +41,17 @@ const MyFeedback = () => {
         .select(`
           *,
           profiles (full_name),
-          feedback_validations!inner (
+          feedback_validations (
             id,
             comment,
             points_awarded,
+            is_validated,
             created_at as validation_date,
             professor:profiles!feedback_validations_professor_id_fkey (full_name)
           )
         `)
         .in('user_id', teamMemberIds)
-        .eq('feedback_validations.is_validated', true)
+        .not('feedback', 'is', null)
         .order('created_at', { ascending: false });
 
       // Load Arena feedback
@@ -72,16 +73,18 @@ const MyFeedback = () => {
 
       let allFeedback = [];
 
-      // Process regular chat feedback
+      // Process regular chat feedback (only include validated ones)
       if (chatData.data) {
-        const chatFeedback = chatData.data.map(log => ({
-          ...log,
-          type: 'chat',
-          source: log.bot_id === 'bot_junior' ? 'Bot Junior' : 'Bot Senior',
-          validation: log.feedback_validations[0],
-          studentName: log.profiles?.full_name,
-          isMyFeedback: log.user_id === user.id
-        }));
+        const chatFeedback = chatData.data
+          .filter(log => log.feedback_validations && log.feedback_validations.length > 0 && log.feedback_validations[0].is_validated === true)
+          .map(log => ({
+            ...log,
+            type: 'chat',
+            source: log.bot_id === 'bot_junior' ? 'Bot Junior' : 'Bot Senior',
+            validation: log.feedback_validations[0],
+            studentName: log.profiles?.full_name,
+            isMyFeedback: log.user_id === user.id
+          }));
         allFeedback = [...allFeedback, ...chatFeedback];
       }
 
