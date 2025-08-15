@@ -145,34 +145,6 @@ const FeedbackValidation = () => {
         }
       }
 
-      // Apply disease filter (filter by teams that have this disease)
-      if (filters.disease) {
-        const { data: teamsWithDisease } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('assigned_disease_id', parseInt(filters.disease));
-        
-        if (teamsWithDisease && teamsWithDisease.length > 0) {
-          const teamIds = teamsWithDisease.map(team => team.id);
-          chatQuery = chatQuery.in('team_id', teamIds);
-          
-          // For arena, get user IDs from these teams
-          const { data: usersInTeams } = await supabase
-            .from('profiles')
-            .select('id')
-            .in('team_id', teamIds);
-          
-          if (usersInTeams && usersInTeams.length > 0) {
-            const userIds = usersInTeams.map(user => user.id);
-            arenaQuery = arenaQuery.in('user_id', userIds);
-          } else {
-            arenaQuery = arenaQuery.eq('user_id', 'no-match'); // Force no results
-          }
-        } else {
-          setFeedbackLogs([]);
-          return;
-        }
-      }
 
       const [chatData, arenaData] = await Promise.all([
         chatQuery.limit(50),
