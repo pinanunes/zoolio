@@ -12,48 +12,54 @@ const FormattedArenaResponse = ({ text, responseTime, messageId }) => {
       gfm: true, // GitHub Flavored Markdown
     });
 
-    // First, convert markdown to HTML
-    let htmlText;
-    try {
-      htmlText = marked(text);
-    } catch (error) {
-      console.error('Error processing markdown:', error);
-      htmlText = text; // Fallback to original text
-    }
-
     const citations = [];
     const citationMap = new Map(); // Track unique citations and their numbers
     let citationCounter = 1;
     
-    // Process citations with double brackets [[citation]]
-    const processedText = htmlText.replace(/\[\[([^\]]+)\]\]/g, (match, citation) => {
+    // 1. First, find and replace SINGLE bracket [[...]] citation blocks
+    //    This is the only line that was changed.
+    let tempText = text.replace(/\[([^\]]+)\]/g, (match, rawCitationText) => {
       let citationNumber;
       let citationId;
-      
-      // Check if this citation already exists
-      if (citationMap.has(citation)) {
-        // Use existing number for repeated citation
-        citationNumber = citationMap.get(citation);
+
+      if (citationMap.has(rawCitationText)) {
+        citationNumber = citationMap.get(rawCitationText);
         citationId = `arena${messageId}-ref${citationNumber}`;
       } else {
-        // New citation - assign new number
-        citationNumber = citationCounter;
+        citationNumber = citationCounter++;
         citationId = `arena${messageId}-ref${citationNumber}`;
+        citationMap.set(rawCitationText, citationNumber);
         
-        // Store in map and citations array
-        citationMap.set(citation, citationNumber);
+        // 2. Process the individual citation string with Marked
+        let citationHtml;
+        try {
+            citationHtml = marked.parseInline(rawCitationText);
+        } catch (e) {
+            console.error("Error parsing citation:", e);
+            citationHtml = rawCitationText; // fallback to raw text
+        }
+
         citations.push({
           id: citationId,
-          text: citation,
-          number: citationNumber
+          text: citationHtml,
+          number: citationNumber,
         });
-        
-        citationCounter++;
       }
-      
-      const result = `<sup><a href="#${citationId}" class="citation-link" style="color: #4ade80; text-decoration: none; font-weight: 500;">${citationNumber}</a></sup>`;
-      return result;
+
+      // Return the superscript that will replace the [...] block
+      return `<sup><a href="#${citationId}" class="citation-link" style="color: #4ade80; text-decoration: none; font-weight: 500;">${citationNumber}</a></sup>`;
     });
+
+    // 3. After citations are extracted, process the main body text
+    let processedText;
+    try {
+        processedText = marked(tempText);
+    } catch(e) {
+        console.error("Error parsing main text:", e);
+        processedText = tempText; // fallback
+    }
+
+    citations.sort((a, b) => a.number - b.number);
 
     return { processedText, citations };
   };

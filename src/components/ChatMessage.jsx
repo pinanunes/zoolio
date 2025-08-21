@@ -194,12 +194,20 @@ const ChatMessage = ({ message, onFeedback, user }) => {
                   <div className="mt-4 pt-3" style={{ borderTop: '1px solid #475569' }}>
                     <p className="text-xs font-medium mb-2" style={{ color: '#cbd5e1' }}>Referências:</p>
                     <ol className="text-xs space-y-1" style={{ color: '#94a3b8' }}>
-                      {citations.map((citation) => (
-                        <li key={citation.id} id={citation.id} className="citation-item">
-                          <span className="font-medium" style={{ color: '#4ade80' }}>{citation.number}.</span>{' '}
-                          <span dangerouslySetInnerHTML={{ __html: citation.text }} />
-                        </li>
-                      ))}
+                      {citations.map((citation) => {
+                        // Modify the <a> tag to open in a new tab AND apply green styling
+                        const modifiedCitation = citation.text.replace(
+                          /<a /g,
+                          '<a target="_blank" rel="noopener noreferrer" style="color: #4ade80; text-decoration: underline;" '
+                        );
+
+                        return (
+                          <li key={citation.id} id={citation.id} className="citation-item">
+                            <span className="font-medium" style={{ color: '#4ade80' }}>{citation.number}.</span>{' '}
+                            <span dangerouslySetInnerHTML={{ __html: modifiedCitation }} />
+                          </li>
+                        );
+                      })}
                     </ol>
                   </div>
                 )}
