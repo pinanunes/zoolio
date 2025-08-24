@@ -201,7 +201,7 @@ const BotArena = () => {
           <div>
             <h3 className="text-lg font-semibold text-white">{user?.name}</h3>
             <p className="text-sm text-gray-300">
-              {user?.team?.name} • {user?.team?.assignedDisease?.name || 'Doença não atribuída'}
+              {user?.team?.name} • {user?.team?.disease?.name || 'Doença não atribuída'}
             </p>
           </div>
           <div className="text-right">

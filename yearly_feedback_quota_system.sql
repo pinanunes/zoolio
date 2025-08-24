@@ -17,9 +17,9 @@ ADD COLUMN IF NOT EXISTS academic_year TEXT DEFAULT '2024-2025';
 
 -- Function to get user feedback quotas (yearly totals)
 CREATE OR REPLACE FUNCTION get_user_feedback_quotas(p_user_id UUID)
-RETURNS JSONB AS $$
+RETURNS JSON AS $$
 DECLARE
-    quota_data JSONB;
+    quota_data JSON;
     current_academic_year TEXT := '2024-2025'; -- This should be configurable
 BEGIN
     -- Get current quotas for the academic year
@@ -54,7 +54,7 @@ BEGIN
     ) INTO quota_data
     FROM quota_summary;
     
-    RETURN COALESCE(quota_data, '{}'::jsonb);
+    RETURN COALESCE(quota_data, '{}'::json);
 END;
 $$ LANGUAGE plpgsql;
 

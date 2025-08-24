@@ -72,6 +72,8 @@ const ArenaFeedbackValidation = () => {
 
       const { data } = await query.limit(50);
       
+      setArenaFeedback(data || []);
+      
       let filteredData = data || [];
       
       // Apply validation filter
