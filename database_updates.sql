@@ -6,7 +6,7 @@ ALTER TABLE public.feedback_validations
 ADD COLUMN IF NOT EXISTS feedback_type TEXT CHECK (feedback_type IN ('positive', 'negative')),
 ADD COLUMN IF NOT EXISTS negative_reason TEXT CHECK (negative_reason IN ('Resposta errada', 'Resposta incompleta', 'Resposta desatualizada')),
 ADD COLUMN IF NOT EXISTS student_justification TEXT,
-ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ADD COLUMN IF NOT EXISTS validation_date TIMESTAMPTZ DEFAULT NOW();
 
 -- Update column comments for clarity
 COMMENT ON COLUMN public.feedback_validations.comment IS 'Professor comment on student feedback';
@@ -60,7 +60,7 @@ SELECT
     fv.comment as professor_comment,
     fv.is_validated,
     fv.points_awarded,
-    fv.created_at as feedback_created_at,
+    fv.validation_date as feedback_created_at,
     cl.question,
     cl.answer,
     cl.feedback as chat_feedback,
@@ -74,7 +74,7 @@ JOIN public.chat_logs cl ON fv.log_id = cl.id
 JOIN public.profiles p ON cl.user_id = p.id
 LEFT JOIN public.teams t ON p.team_id = t.id
 LEFT JOIN public.profiles prof ON fv.professor_id = prof.id
-ORDER BY fv.created_at DESC;
+ORDER BY fv.validation_date DESC;
 
 -- Grant necessary permissions
 GRANT SELECT ON feedback_with_details TO authenticated;

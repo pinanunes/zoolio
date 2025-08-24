@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { BOTS } from '../config/bots';
-import Header from '../components/Header';
-import Footer from '../components/Footer';
 
 const MyFeedback = () => {
   const { user } = useAuth();
@@ -46,7 +44,7 @@ const MyFeedback = () => {
             comment,
             points_awarded,
             is_validated,
-            created_at as validation_date,
+            validation_date,
             professor:profiles!feedback_validations_professor_id_fkey (full_name)
           )
         `)
@@ -129,8 +127,8 @@ const MyFeedback = () => {
 
       // Sort by validation date (most recent first)
       filteredFeedback.sort((a, b) => {
-        const dateA = new Date(a.validation?.validation_date || a.validation?.created_at);
-        const dateB = new Date(b.validation?.validation_date || b.validation?.created_at);
+        const dateA = new Date(a.validation?.validation_date);
+        const dateB = new Date(b.validation?.validation_date);
         return dateB - dateA;
       });
 
@@ -149,25 +147,18 @@ const MyFeedback = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: '#1e293b' }}>
-        <Header />
-        <div className="flex items-center justify-center py-12">
-          <div className="flex space-x-1">
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce"></div>
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-            <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-          </div>
+      <div className="flex items-center justify-center py-12">
+        <div className="flex space-x-1">
+          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce"></div>
+          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
         </div>
-        <Footer />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#1e293b' }}>
-      <Header />
-      
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">O Meu Feedback</h1>
@@ -243,9 +234,6 @@ const MyFeedback = () => {
             ))
           )}
         </div>
-      </div>
-
-      <Footer />
     </div>
   );
 };
@@ -323,7 +311,7 @@ const FeedbackCard = ({ feedback }) => {
             </span>
           </div>
           <p className="text-xs text-gray-400">
-            Validado em {new Date(feedback.validation?.validation_date || feedback.validation?.created_at).toLocaleDateString('pt-PT')}
+            Validado em {new Date(feedback.validation?.validation_date).toLocaleDateString('pt-PT')}
           </p>
         </div>
       </div>
@@ -447,7 +435,7 @@ const FeedbackCard = ({ feedback }) => {
             Validado por: {feedback.validation?.professor?.full_name || 'Professor'}
           </p>
           <span className="text-xs text-green-200">
-            {new Date(feedback.validation?.validation_date || feedback.validation?.created_at).toLocaleString('pt-PT')}
+            {new Date(feedback.validation?.validation_date).toLocaleString('pt-PT')}
           </span>
         </div>
         <p className="text-gray-200 text-sm mb-2">{feedback.validation?.comment}</p>

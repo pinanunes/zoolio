@@ -30,12 +30,15 @@ BEGIN
             CASE 
                 WHEN bot_id = 'bot_junior' THEN 5
                 WHEN bot_id = 'bot_senior' THEN 5
+                WHEN bot_id = 'bot_arena' THEN 5
                 ELSE 5
             END as max_quota
         FROM (
             SELECT 'bot_junior' as bot_id
             UNION ALL
             SELECT 'bot_senior' as bot_id
+            UNION ALL
+            SELECT 'bot_arena' as bot_id
         ) bots
         LEFT JOIN feedback_quotas fq ON fq.user_id = p_user_id 
             AND fq.bot_id = bots.bot_id 
@@ -125,6 +128,8 @@ BEGIN
         SELECT 'bot_junior' as bot_id
         UNION ALL
         SELECT 'bot_senior' as bot_id
+        UNION ALL
+        SELECT 'bot_arena' as bot_id
     ) bot_ids
     WHERE p.role = 'student'
     ON CONFLICT (user_id, bot_id, academic_year) DO NOTHING;
@@ -159,6 +164,8 @@ BEGIN
         SELECT 'bot_junior' as bot_id
         UNION ALL
         SELECT 'bot_senior' as bot_id
+        UNION ALL
+        SELECT 'bot_arena' as bot_id
     ) bot_ids
     WHERE p.role = 'student'
     ON CONFLICT (user_id, bot_id, academic_year) DO NOTHING;

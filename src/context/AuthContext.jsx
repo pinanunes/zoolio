@@ -345,10 +345,7 @@ export const AuthProvider = ({ children }) => {
           email: email,
           role: role,
           is_approved: role === 'student' ? true : false, // Students auto-approved, professors need approval
-          personal_points: 0,
-          feedback_junior_quota: 5,
-          feedback_senior_quota: 5,
-          feedback_arena_quota: 5
+          personal_points: 0
         };
 
         // Add student-specific fields

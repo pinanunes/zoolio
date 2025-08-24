@@ -49,6 +49,13 @@ UPDATE public.profiles SET
     team_id = NULL,
     personal_points = 0;
 
+-- Remove obsolete quota columns
+DROP VIEW IF EXISTS public.feedback_quota_status;
+ALTER TABLE public.profiles
+DROP COLUMN IF EXISTS feedback_junior_quota,
+DROP COLUMN IF EXISTS feedback_senior_quota,
+DROP COLUMN IF EXISTS feedback_arena_quota;
+
 -- Note: We keep the following unchanged:
 -- - id, full_name, email, role, student_number, is_approved
 -- - This preserves user accounts and basic profile information
@@ -66,6 +73,13 @@ UPDATE public.profiles SET
 -- SELECT COUNT(*) as students_in_teams FROM public.profiles WHERE team_id IS NOT NULL;
 -- SELECT SUM(points) as total_team_points FROM public.teams;
 -- SELECT SUM(personal_points) as total_personal_points FROM public.profiles;
+
+-- =====================================================
+-- STEP 4: RESET QUOTAS FOR NEW ACADEMIC YEAR
+-- =====================================================
+
+-- This will reset all student quotas for the new academic year
+SELECT reset_academic_year_quotas('2025-2026'); -- IMPORTANT: Update this to the new academic year
 
 -- =====================================================
 -- RESET COMPLETED
