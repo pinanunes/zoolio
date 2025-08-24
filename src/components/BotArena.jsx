@@ -142,6 +142,7 @@ const BotArena = () => {
         await updateFeedbackQuota('bot_arena');
       }
 
+      handleFeedbackModalClose();
     } catch (error) {
       console.error('Error saving comparative chat log:', error);
       throw error;
