@@ -142,9 +142,6 @@ const BotArena = () => {
         await updateFeedbackQuota('bot_arena');
       }
 
-      // Refresh user profile to update quota
-      await refreshUserProfile();
-
     } catch (error) {
       console.error('Error saving comparative chat log:', error);
       throw error;
