@@ -51,6 +51,7 @@ CREATE TRIGGER trigger_update_team_points
     EXECUTE FUNCTION update_team_points();
 
 -- Create a view for easier querying of feedback with related data
+DROP VIEW IF EXISTS public.feedback_with_details;
 CREATE OR REPLACE VIEW feedback_with_details AS
 SELECT 
     fv.id as feedback_id,
