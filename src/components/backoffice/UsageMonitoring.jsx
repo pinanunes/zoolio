@@ -1,5 +1,82 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { BOTS } from '../../config/bots'; // Import BOTS to get bot details
+
+// --- START OF THE FIX: Updated LogCard with Bot Name ---
+const LogCard = ({ log }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isArena = !log.hasOwnProperty('answer'); // Differentiate based on available props
+
+  // Determine the bot that was used
+  const bot = BOTS[log.bot_id] || { name: 'Bot Desconhecido', color: '#64748b' };
+
+  const answerText = isArena 
+    ? `Bot 1: ${log.answer_1}\nBot 2: ${log.answer_2}\nBot 3: ${log.answer_3}`
+    : log.answer;
+
+  const truncatedAnswer = answerText.length > 200 ? answerText.substring(0, 200) + '...' : answerText;
+
+  return (
+    <div className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+      <div className="flex justify-between items-start mb-2">
+        <div>
+          <p className="text-white font-medium">{log.profiles?.full_name}</p>
+          <div className="text-sm text-gray-400 flex items-center space-x-2">
+            <span>{log.teams?.team_name || 'Sem Equipa'}</span>
+            <span>•</span>
+            <span>{new Date(log.created_at).toLocaleString('pt-PT')}</span>
+            {/* Display Bot Tag for regular chats */}
+            {!isArena && (
+              <>
+                <span>•</span>
+                <span className="font-medium" style={{ color: bot.color }}>{bot.name}</span>
+              </>
+            )}
+          </div>
+        </div>
+        {isArena ? (
+          <span className="px-2 py-1 rounded text-xs bg-orange-600 text-white font-medium">
+            Arena (Votou no Bot {log.voted_best_answer})
+          </span>
+        ) : (
+          log.feedback && (
+            <span className={`px-2 py-1 rounded text-xs ${
+              log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+            }`}>
+              {log.feedback === 1 ? '👍 Útil' : '👎 Não útil'}
+            </span>
+          )
+        )}
+      </div>
+      <div className="text-gray-300 text-sm">
+        <p><strong>Pergunta:</strong> {log.question}</p>
+        <div className="mt-2">
+            <p className="text-white"><strong>Resposta:</strong></p>
+            <div className="pl-2 mt-1 border-l-2 border-gray-600 italic text-gray-300">
+                {isExpanded ? (
+                    answerText.split('\n').map((line, i) => <p key={i}>{line}</p>)
+                ) : (
+                    <p>{truncatedAnswer}</p>
+                )}
+            </div>
+            {answerText.length > 200 && (
+                <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-blue-400 hover:underline text-xs mt-1"
+                >
+                    {isExpanded ? 'Ver menos' : 'Ver mais'}
+                </button>
+            )}
+        </div>
+        {log.justification && (
+            <p className="mt-2"><strong>Justificação:</strong> {log.justification}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+// --- END OF THE FIX ---
+
 
 const UsageMonitoring = () => {
   const [stats, setStats] = useState({
@@ -12,67 +89,45 @@ const UsageMonitoring = () => {
   const [comparativeLogs, setComparativeLogs] = useState([]);
   const [filters, setFilters] = useState({
     team: '',
-    disease: '',
     dateFrom: '',
     dateTo: ''
   });
   const [teams, setTeams] = useState([]);
-  const [diseases, setDiseases] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('stats');
+  
+  const allLogs = [...chatLogs, ...comparativeLogs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  useEffect(() => {
-    if (filters.team || filters.disease || filters.dateFrom || filters.dateTo) {
-      loadFilteredLogs();
-    } else {
-      loadRecentLogs();
-    }
   }, [filters]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       
-      // Load basic stats
       const today = new Date().toISOString().split('T')[0];
       
       const [
         { count: totalChats },
         { count: totalComparativeChats },
         { count: todayChats },
-        { data: teamsData },
-        { data: diseasesData }
+        { data: teamsData }
       ] = await Promise.all([
         supabase.from('chat_logs').select('*', { count: 'exact', head: true }),
         supabase.from('comparative_chat_logs').select('*', { count: 'exact', head: true }),
         supabase.from('chat_logs').select('*', { count: 'exact', head: true }).gte('created_at', today),
-        supabase.from('teams').select('id, team_name').order('team_name'),
-        supabase.from('diseases').select('id, name').order('name')
+        supabase.from('teams').select('id, team_name').order('team_name')
       ]);
-
-      // Count active teams (teams with at least one chat log)
-      const { data: activeTeamsData } = await supabase
-        .from('chat_logs')
-        .select('team_id')
-        .not('team_id', 'is', null);
-      
-      const uniqueTeams = new Set(activeTeamsData?.map(log => log.team_id) || []);
 
       setStats({
         totalChats: totalChats || 0,
         totalComparativeChats: totalComparativeChats || 0,
         todayChats: todayChats || 0,
-        activeTeams: uniqueTeams.size
       });
 
       setTeams(teamsData || []);
-      setDiseases(diseasesData || []);
       
-      await loadRecentLogs();
+      await loadFilteredLogs();
 
     } catch (error) {
       console.error('Error loading data:', error);
@@ -81,56 +136,18 @@ const UsageMonitoring = () => {
     }
   };
 
-  const loadRecentLogs = async () => {
-    try {
-      // Load recent chat logs
-      const { data: chatData } = await supabase
-        .from('chat_logs')
-        .select(`
-          *,
-          profiles (full_name),
-          teams (team_name)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      // Load recent comparative logs
-      const { data: comparativeData } = await supabase
-        .from('comparative_chat_logs')
-        .select(`
-          *,
-          profiles (full_name)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      setChatLogs(chatData || []);
-      setComparativeLogs(comparativeData || []);
-    } catch (error) {
-      console.error('Error loading recent logs:', error);
-    }
-  };
-
   const loadFilteredLogs = async () => {
     try {
       let chatQuery = supabase
         .from('chat_logs')
-        .select(`
-          *,
-          profiles (full_name),
-          teams (team_name, diseases (name))
-        `)
+        .select(`*, profiles (full_name), teams (team_name)`)
         .order('created_at', { ascending: false });
 
       let comparativeQuery = supabase
         .from('comparative_chat_logs')
-        .select(`
-          *,
-          profiles (full_name)
-        `)
+        .select(`*, profiles (full_name)`)
         .order('created_at', { ascending: false });
 
-      // Apply filters
       if (filters.team) {
         chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
       }
@@ -142,7 +159,7 @@ const UsageMonitoring = () => {
       
       if (filters.dateTo) {
         const endDate = new Date(filters.dateTo);
-        endDate.setDate(endDate.getDate() + 1); // Include the entire day
+        endDate.setDate(endDate.getDate() + 1);
         chatQuery = chatQuery.lt('created_at', endDate.toISOString());
         comparativeQuery = comparativeQuery.lt('created_at', endDate.toISOString());
       }
@@ -152,15 +169,7 @@ const UsageMonitoring = () => {
         comparativeQuery.limit(50)
       ]);
 
-      // Filter by disease if specified
-      let filteredChatData = chatData || [];
-      if (filters.disease) {
-        filteredChatData = filteredChatData.filter(log => 
-          log.teams?.diseases?.some(disease => disease.name === filters.disease)
-        );
-      }
-
-      setChatLogs(filteredChatData);
+      setChatLogs(chatData || []);
       setComparativeLogs(comparativeData || []);
     } catch (error) {
       console.error('Error loading filtered logs:', error);
@@ -168,12 +177,7 @@ const UsageMonitoring = () => {
   };
 
   const clearFilters = () => {
-    setFilters({
-      team: '',
-      disease: '',
-      dateFrom: '',
-      dateTo: ''
-    });
+    setFilters({ team: '', dateFrom: '', dateTo: '' });
   };
 
   if (loading) {
@@ -192,7 +196,6 @@ const UsageMonitoring = () => {
     <div>
       <h1 className="text-3xl font-bold text-white mb-6">Monitorização de Utilização</h1>
       
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Total de Chats</h3>
@@ -212,166 +215,40 @@ const UsageMonitoring = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h3 className="text-lg font-bold text-white mb-4">Filtros</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <select
-            value={filters.team}
-            onChange={(e) => setFilters(prev => ({ ...prev, team: e.target.value }))}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <select value={filters.team} onChange={(e) => setFilters(prev => ({ ...prev, team: e.target.value }))}
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-            style={{ 
-              backgroundColor: '#475569', 
-              border: '1px solid #64748b',
-              color: '#ffffff'
-            }}
+            style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
           >
             <option value="">Todas as equipas</option>
-            {teams.map(team => (
-              <option key={team.id} value={team.id}>{team.team_name}</option>
-            ))}
+            {teams.map(team => (<option key={team.id} value={team.id}>{team.team_name}</option>))}
           </select>
-
-          <select
-            value={filters.disease}
-            onChange={(e) => setFilters(prev => ({ ...prev, disease: e.target.value }))}
+          <input type="date" value={filters.dateFrom} onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-            style={{ 
-              backgroundColor: '#475569', 
-              border: '1px solid #64748b',
-              color: '#ffffff'
-            }}
-          >
-            <option value="">Todas as doenças</option>
-            {diseases.map(disease => (
-              <option key={disease.id} value={disease.name}>{disease.name}</option>
-            ))}
-          </select>
-
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-            className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-            style={{ 
-              backgroundColor: '#475569', 
-              border: '1px solid #64748b',
-              color: '#ffffff'
-            }}
-            placeholder="Data início"
+            style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
           />
-
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+          <input type="date" value={filters.dateTo} onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-            style={{ 
-              backgroundColor: '#475569', 
-              border: '1px solid #64748b',
-              color: '#ffffff'
-            }}
-            placeholder="Data fim"
+            style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
           />
-
-          <button
-            onClick={clearFilters}
-            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-          >
+          <button onClick={clearFilters} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
             Limpar Filtros
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="mb-6">
-        <div className="flex space-x-4">
-          <button
-            onClick={() => setActiveTab('stats')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              activeTab === 'stats' 
-                ? 'bg-green-600 text-white' 
-                : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-            }`}
-          >
-            Estatísticas
-          </button>
-          <button
-            onClick={() => setActiveTab('chats')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              activeTab === 'chats' 
-                ? 'bg-green-600 text-white' 
-                : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-            }`}
-          >
-            Chat Principal ({chatLogs.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('arena')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              activeTab === 'arena' 
-                ? 'bg-green-600 text-white' 
-                : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-            }`}
-          >
-            Arena de Bots ({comparativeLogs.length})
-          </button>
-        </div>
+      <h3 className="text-xl font-bold text-white mb-4">Registos Recentes</h3>
+      <div className="space-y-4">
+        {allLogs.length > 0 ? (
+          allLogs.map((log) => (
+            <LogCard key={`${log.id}-${!log.hasOwnProperty('answer')}`} log={log} />
+          ))
+        ) : (
+          <p className="text-gray-400 text-center py-8">Nenhum registo encontrado para os filtros selecionados.</p>
+        )}
       </div>
-
-      {/* Tab Content */}
-      {activeTab === 'chats' && (
-        <div className="space-y-4">
-          {chatLogs.map((log) => (
-            <div key={log.id} className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-white font-medium">{log.profiles?.full_name}</p>
-                  <p className="text-sm text-gray-400">
-                    {log.teams?.team_name} • {new Date(log.created_at).toLocaleString('pt-PT')}
-                  </p>
-                </div>
-                {log.feedback && (
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-                  }`}>
-                    {log.feedback === 1 ? '👍 Útil' : '👎 Não útil'}
-                  </span>
-                )}
-              </div>
-              <div className="text-gray-300 text-sm">
-                <p><strong>Pergunta:</strong> {log.question}</p>
-                <p className="mt-2"><strong>Resposta:</strong> {log.answer.substring(0, 200)}...</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === 'arena' && (
-        <div className="space-y-4">
-          {comparativeLogs.map((log) => (
-            <div key={log.id} className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <p className="text-white font-medium">{log.profiles?.full_name}</p>
-                  <p className="text-sm text-gray-400">
-                    {new Date(log.created_at).toLocaleString('pt-PT')}
-                  </p>
-                </div>
-                {log.voted_best_answer && (
-                  <span className="px-2 py-1 rounded text-xs bg-blue-600 text-white">
-                    Votou no Bot {log.voted_best_answer}
-                  </span>
-                )}
-              </div>
-              <div className="text-gray-300 text-sm">
-                <p><strong>Pergunta:</strong> {log.question}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };

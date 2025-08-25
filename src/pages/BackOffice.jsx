@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient'; // Import supabase
 import TeamManagement from '../components/backoffice/TeamManagement';
 import UserApprovals from '../components/backoffice/UserApprovals';
 import UsageMonitoring from '../components/backoffice/UsageMonitoring';
@@ -14,7 +15,9 @@ const BackOffice = () => {
   const { user } = useAuth();
   const location = useLocation();
 
+  // --- START OF FIX 1: Add a "Return to App" link ---
   const menuItems = [
+    { path: '/', name: 'Voltar à App', icon: '⬅️', isExternal: true },
     { path: '/backoffice', name: 'Dashboard', icon: '📊' },
     { path: '/backoffice/teams', name: 'Gestão de Grupos', icon: '👥' },
     { path: '/backoffice/diseases', name: 'Gestão de Doenças', icon: '🦠' },
@@ -23,6 +26,7 @@ const BackOffice = () => {
     { path: '/backoffice/monitoring', name: 'Monitorização', icon: '📈' },
     { path: '/backoffice/feedback', name: 'Validação de Feedback', icon: '💬' }
   ];
+  // --- END OF FIX 1 ---
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#1e293b' }}>
@@ -46,7 +50,7 @@ const BackOffice = () => {
                   key={item.path}
                   to={item.path}
                   className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                    location.pathname === item.path
+                    location.pathname === item.path && !item.isExternal
                       ? 'bg-green-600 text-white'
                       : 'text-gray-300 hover:bg-gray-600 hover:text-white'
                   }`}
@@ -58,7 +62,6 @@ const BackOffice = () => {
             </nav>
           </div>
 
-          {/* User info and logout */}
           <div className="absolute bottom-0 w-64 p-6 border-t" style={{ borderColor: '#475569' }}>
             <div className="flex items-center justify-between">
               <div>
@@ -83,34 +86,58 @@ const BackOffice = () => {
           </Routes>
         </div>
       </div>
-
-      {/* Footer */}
       <Footer />
     </div>
   );
 };
 
-// Simple Dashboard component
+// --- START OF FIX 2: Implement Real-Time Dashboard Stats ---
 const Dashboard = () => {
+  const [stats, setStats] = useState({
+    total_teams: 0,
+    pending_approvals: 0,
+    messages_today: 0,
+    active_users_today: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase.rpc('get_dashboard_stats');
+        if (error) throw error;
+        if (data && data.length > 0) {
+          setStats(data[0]);
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
   return (
     <div>
       <h1 className="text-3xl font-bold text-white mb-6">Dashboard</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Total de Equipas</h3>
-          <p className="text-3xl font-bold text-green-400">30</p>
+          <p className="text-3xl font-bold text-green-400">{loading ? '-' : stats.total_teams}</p>
         </div>
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
-          <h3 className="text-lg font-bold text-white mb-2">Utilizadores Ativos</h3>
-          <p className="text-3xl font-bold text-blue-400">-</p>
+          <h3 className="text-lg font-bold text-white mb-2">Utilizadores Ativos (Hoje)</h3>
+          <p className="text-3xl font-bold text-blue-400">{loading ? '-' : stats.active_users_today}</p>
         </div>
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Mensagens Hoje</h3>
-          <p className="text-3xl font-bold text-yellow-400">-</p>
+          <p className="text-3xl font-bold text-yellow-400">{loading ? '-' : stats.messages_today}</p>
         </div>
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Aprovações Pendentes</h3>
-          <p className="text-3xl font-bold text-red-400">-</p>
+          <p className="text-3xl font-bold text-red-400">{loading ? '-' : stats.pending_approvals}</p>
         </div>
       </div>
       
@@ -123,5 +150,6 @@ const Dashboard = () => {
     </div>
   );
 };
+// --- END OF FIX 2 ---
 
 export default BackOffice;

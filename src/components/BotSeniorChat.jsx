@@ -18,7 +18,8 @@ const BotSeniorChat = () => {
   const [showTimeout, setShowTimeout] = useState(false);
   const [diseaseStatus, setDiseaseStatus] = useState([]);
   const [loadingDiseases, setLoadingDiseases] = useState(true);
-  
+  const [lastClassification, setLastClassification] = useState(null);
+
   // --- START OF FIX 1: Add state for our new Team -> Disease map ---
   const [teamDiseaseMap, setTeamDiseaseMap] = useState(new Map());
   // --- END OF FIX 1 ---
@@ -164,7 +165,7 @@ const BotSeniorChat = () => {
   // No other functions below this point need to be changed.
   // ... (handleSubmit, handleFeedback, saveFeedback, etc. all remain the same) ...
 
-  const handleSubmit = async (e) => {
+      const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
@@ -183,21 +184,15 @@ const BotSeniorChat = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-
     abortControllerRef.current = new AbortController();
 
-    const timeoutId = setTimeout(() => {
-      setShowTimeout(true);
-    }, 10000);
-
+    const timeoutId = setTimeout(() => setShowTimeout(true), 10000);
     const startTime = Date.now();
 
     try {
       const response = await fetch(BOTS.bot_senior.endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMessage.content,
           user: {
@@ -218,13 +213,32 @@ const BotSeniorChat = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const rawData = await response.json();
       const endTime = Date.now();
       const responseTime = (endTime - startTime) / 1000;
 
-      const messageContent = data.output || data.answer || data.text || data.message || data.response ||
-                            (data.data && (data.data.output || data.data.answer || data.data.text || data.data.message)) ||
-                            (typeof data === 'string' ? data : 'Desculpe, não consegui processar a sua pergunta.');
+      // --- START OF THE NEW LOGIC ---
+      let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
+      let classification = 'Não Especificada'; // Default classification
+      
+      const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+
+      if (n8nOutput && typeof n8nOutput.output === 'string') {
+        try {
+          const innerData = JSON.parse(n8nOutput.output);
+          messageContent = innerData.output || JSON.stringify(innerData);
+          // Extract the classification from the inner JSON
+          classification = innerData.disease_classification || 'Não Especificada';
+        } catch (e) {
+          messageContent = n8nOutput.output;
+        }
+      } else if (n8nOutput) {
+        messageContent = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
+      }
+      
+      // Save the classification to the component's state to be used later
+      setLastClassification(classification);
+      // --- END OF THE NEW LOGIC ---
 
       const botMessage = {
         id: Date.now() + 1,
@@ -264,7 +278,6 @@ const BotSeniorChat = () => {
       abortControllerRef.current = null;
     }
   };
-
   const handleFeedback = (feedbackData) => {
     setCurrentFeedback(feedbackData);
     if (feedbackData.type === 'positive') {
@@ -274,23 +287,28 @@ const BotSeniorChat = () => {
     }
   };
 
-  const saveFeedback = async (feedback, feedbackData = '') => {
+      const saveFeedback = async (feedback, feedbackData = '') => {
     try {
+      // Use the new quota system
       const quotaResult = await updateFeedbackQuota('bot_senior');
+
       if (!quotaResult.success) {
         alert(quotaResult.message);
         return;
       }
 
+      // Prepare the insert data, now including the disease_classification
       const insertData = {
         user_id: user.id,
         team_id: user.teamId,
         question: feedback.question,
         answer: feedback.answer,
         feedback: feedback.type === 'positive' ? 1 : -1,
-        bot_id: 'bot_senior'
+        bot_id: 'bot_senior',
+        disease_classification: lastClassification // Add the saved classification
       };
 
+      // If it's positive feedback with structured data, add the details
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {
         insertData.positive_feedback_details = {
           options: feedbackData.feedback.options,
@@ -298,8 +316,13 @@ const BotSeniorChat = () => {
         };
       }
 
-      const { error } = await supabase.from('chat_logs').insert(insertData);
+      const { error } = await supabase
+        .from('chat_logs')
+        .insert(insertData);
+
       if (error) throw error;
+
+      console.log('Feedback saved successfully with classification:', lastClassification);
 
     } catch (error) {
       console.error('Error saving feedback:', error);

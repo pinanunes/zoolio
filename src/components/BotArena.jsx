@@ -16,16 +16,17 @@ const BotArena = () => {
   const [selectedBot, setSelectedBot] = useState(null);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [selectedBotInfo, setSelectedBotInfo] = useState(null);
+  
+  // --- START OF FIX 1: Add state to store the classification ---
+  const [questionClassification, setQuestionClassification] = useState(null);
+  // --- END OF FIX 1 ---
 
   const isProfessorOrAdmin = user?.role === 'professor' || user?.role === 'admin';
 
-  // --- START OF THE FIX ---
-  // Use the correct property names from the user.team object
   const teamProgress = {
     hasSubmittedSheet: user?.team?.has_submitted_sheet || false,
     hasSubmittedReview: user?.team?.has_submitted_review || false
   };
-  // --- END OF THE FIX ---
 
   const isUnlocked = isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview);
   
@@ -34,18 +35,20 @@ const BotArena = () => {
     teamProgress.hasSubmittedReview
   ) : [];
 
-  const sendToAllBots = async () => {
+  // --- START OF FIX 2: Update the sendToAllBots function ---
+    const sendToAllBots = async () => {
     if (!question.trim() || !isUnlocked || arenaBots.length === 0) return;
 
+    // Reset responses and set loading states
     setResponses({
       bot1: { text: '', loading: true, responseTime: null },
       bot2: { text: '', loading: true, responseTime: null },
       bot3: { text: '', loading: true, responseTime: null }
     });
     setSelectedBot(null);
+    setQuestionClassification(null); // Reset classification on new question
 
-    const startTime = Date.now();
-
+    // Send to all bots simultaneously
     const promises = arenaBots.map(async (bot, index) => {
       const botKey = `bot${index + 1}`;
       const botStartTime = Date.now();
@@ -61,7 +64,7 @@ const BotArena = () => {
             user: {
               id: user.id,
               email: user.email,
-              full_name: user.name, // Use user.name consistent with AuthContext
+              full_name: user.name,
               role: user.role,
               team_id: user.teamId
             }
@@ -72,12 +75,42 @@ const BotArena = () => {
           throw new Error(`Failed to get response from ${bot.name}`);
         }
 
-        const data = await response.json();
+        const rawData = await response.json();
         const responseTime = (Date.now() - botStartTime) / 1000;
         
-        const botResponse = data.answer || data.response || data.message || data.text || data.output ||
-                           (data.data && (data.data.answer || data.data.response || data.data.message || data.data.text)) ||
-                           'Desculpe, não consegui processar a sua pergunta.';
+        // --- START OF THE DEFINITIVE FIX: Markdown-Aware Double JSON Parsing for Arena ---
+        let botResponse = 'Desculpe, ocorreu um erro ao processar a resposta.';
+        let classification = 'Não Especificada';
+        
+        const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+
+        if (n8nOutput && typeof n8nOutput.output === 'string') {
+          let jsonString = n8nOutput.output;
+          
+          // Check for and remove Markdown code fences (```json ... ```)
+          if (jsonString.startsWith('```json')) {
+            jsonString = jsonString.substring(7, jsonString.length - 3).trim();
+          }
+
+          try {
+            // Attempt to parse the cleaned inner JSON string
+            const innerData = JSON.parse(jsonString);
+            botResponse = innerData.output || JSON.stringify(innerData);
+            classification = innerData.disease_classification || 'Não Especificada';
+          } catch (e) {
+            // If parsing still fails, it's just a regular string. Use it directly.
+            botResponse = n8nOutput.output;
+          }
+        } else if (n8nOutput) {
+          // Fallback for other possible structures or old formats
+          botResponse = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
+        }
+
+        // Save the classification from the first bot's response
+        if (index === 0) {
+          setQuestionClassification(classification);
+        }
+        // --- END OF THE DEFINITIVE FIX ---
 
         setResponses(prev => ({
           ...prev,
@@ -117,6 +150,7 @@ const BotArena = () => {
     setIsFeedbackModalOpen(true);
   };
 
+ // --- START OF FIX 3: Update the handleFeedbackSubmit function ---
   const handleFeedbackSubmit = async (justification) => {
     try {
       await supabase
@@ -128,7 +162,8 @@ const BotArena = () => {
           answer_2: responses.bot2.text,
           answer_3: responses.bot3.text,
           voted_best_answer: selectedBot,
-          justification: justification
+          justification: justification,
+          disease_classification: questionClassification // Add the classification here
         }]);
 
       if (user?.role === 'student') {

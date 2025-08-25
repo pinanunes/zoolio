@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import toast from 'react-hot-toast';
 
 const UserApprovals = () => {
   const [pendingUsers, setPendingUsers] = useState([]);
@@ -18,9 +19,8 @@ const UserApprovals = () => {
         .from('profiles')
         .select('*')
         .eq('role', 'professor')
-        .eq('is_approved', false)
-        .order('created_at', { ascending: false });
-
+        .eq('is_approved', false);
+        
       setPendingUsers(data || []);
     } catch (error) {
       console.error('Error loading pending users:', error);

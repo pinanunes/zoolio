@@ -18,7 +18,7 @@ const BotJuniorChat = () => {
   const [showTimeout, setShowTimeout] = useState(false);
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
-
+  const [lastClassification, setLastClassification] = useState(null); // <-- ADD THIS LINE
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -27,7 +27,7 @@ const BotJuniorChat = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSubmit = async (e) => {
+      const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
@@ -43,33 +43,24 @@ const BotJuniorChat = () => {
     setIsLoading(true);
     setShowTimeout(false);
 
-    // Cancel any previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-
-    // Create new abort controller
     abortControllerRef.current = new AbortController();
 
-    // Set timeout for showing timeout message
-    const timeoutId = setTimeout(() => {
-      setShowTimeout(true);
-    }, 10000); // Show after 10 seconds
-
+    const timeoutId = setTimeout(() => setShowTimeout(true), 10000);
     const startTime = Date.now();
 
     try {
       const response = await fetch(BOTS.bot_junior.endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMessage.content,
           user: {
             id: user.id,
             email: user.email,
-            full_name: user.full_name,
+            full_name: user.name,
             role: user.role,
             team_id: user.teamId
           }
@@ -84,14 +75,40 @@ const BotJuniorChat = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const rawData = await response.json();
       const endTime = Date.now();
       const responseTime = (endTime - startTime) / 1000;
 
-      // Extract the actual message content from the JSON response
-      const messageContent = data.output || data.answer || data.text || data.message || data.response ||
-                            (data.data && (data.data.output || data.data.answer || data.data.text || data.data.message)) ||
-                            (typeof data === 'string' ? data : 'Desculpe, não consegui processar a sua pergunta.');
+      // --- START OF THE DEFINITIVE FIX: Markdown-Aware Double JSON Parsing ---
+      let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
+      let classification = 'Não Especificada'; // Default classification
+      
+      const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+
+      if (n8nOutput && typeof n8nOutput.output === 'string') {
+        let jsonString = n8nOutput.output;
+        
+        // Check for and remove Markdown code fences (```json ... ```)
+        if (jsonString.startsWith('```json')) {
+          jsonString = jsonString.substring(7, jsonString.length - 3).trim();
+        }
+
+        try {
+          // Attempt to parse the cleaned inner JSON string
+          const innerData = JSON.parse(jsonString);
+          messageContent = innerData.output || JSON.stringify(innerData);
+          classification = innerData.disease_classification || 'Não Especificada';
+        } catch (e) {
+          // If parsing still fails, it's just a regular string. Use it directly.
+          messageContent = n8nOutput.output;
+        }
+      } else if (n8nOutput) {
+        messageContent = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
+      }
+      
+      // Save the classification to the component's state to be used later
+      setLastClassification(classification);
+      // --- END OF THE DEFINITIVE FIX ---
 
       const botMessage = {
         id: Date.now() + 1,
