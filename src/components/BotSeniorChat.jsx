@@ -18,6 +18,11 @@ const BotSeniorChat = () => {
   const [showTimeout, setShowTimeout] = useState(false);
   const [diseaseStatus, setDiseaseStatus] = useState([]);
   const [loadingDiseases, setLoadingDiseases] = useState(true);
+  
+  // --- START OF FIX 1: Add state for our new Team -> Disease map ---
+  const [teamDiseaseMap, setTeamDiseaseMap] = useState(new Map());
+  // --- END OF FIX 1 ---
+
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
 
@@ -25,21 +30,33 @@ const BotSeniorChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // --- START OF FIX 2: Corrected getDiseaseOutline function ---
   const getDiseaseOutline = (diseaseId) => {
     if (user?.role !== 'student' || !user.team) return 'border-transparent';
 
     const { team } = user;
+
+    // 1. Check for own assigned disease (Green) - This was already correct.
     if (diseaseId === team.assignedDiseaseId) {
-      return 'border-green-500'; // Assigned to my team
+      return 'border-green-500';
     }
-    if (diseaseId === team.blueTeamDiseaseId) {
-      return 'border-blue-500'; // Assigned to blue team
+
+    // 2. Check for Blue Team's disease using the map
+    const blueTeamDiseaseId = teamDiseaseMap.get(team.blueTeamReviewTargetId);
+    if (diseaseId === blueTeamDiseaseId) {
+      return 'border-blue-500';
     }
-    if (diseaseId === team.redTeam1TargetId || diseaseId === team.redTeam2TargetId) {
-      return 'border-red-500'; // Assigned to red teams
+
+    // 3. Check for Red Teams' diseases using the map
+    const redTeam1DiseaseId = teamDiseaseMap.get(team.redTeam1TargetId);
+    const redTeam2DiseaseId = teamDiseaseMap.get(team.redTeam2TargetId);
+    if (diseaseId === redTeam1DiseaseId || diseaseId === redTeam2DiseaseId) {
+      return 'border-red-500';
     }
+
     return 'border-transparent';
   };
+  // --- END OF FIX 2 ---
 
   useEffect(() => {
     scrollToBottom();
@@ -53,7 +70,6 @@ const BotSeniorChat = () => {
     try {
       setLoadingDiseases(true);
       
-      // Get all diseases and their team status
       const { data, error } = await supabase
         .from('diseases')
         .select(`
@@ -69,23 +85,33 @@ const BotSeniorChat = () => {
         .order('name');
 
       if (error) throw error;
+      
+      // --- START OF FIX 3: Build the Team -> Disease Map ---
+      const newTeamDiseaseMap = new Map();
+      data.forEach(disease => {
+        if (disease.teams && disease.teams.length > 0) {
+          // Assuming one team per disease
+          newTeamDiseaseMap.set(disease.teams[0].id, disease.id);
+        }
+      });
+      setTeamDiseaseMap(newTeamDiseaseMap);
+      // --- END OF FIX 3 ---
 
-      // Process the data to show disease status
       const processedDiseases = data.map(disease => {
-        const team = disease.teams[0]; // Each disease should have one team
+        const team = disease.teams[0];
         let status = 'Não Atribuída';
-        let statusColor = '#6B7280'; // Gray
+        let statusColor = '#6B7280';
         
         if (team) {
           if (team.has_submitted_review) {
             status = 'Versão Revista';
-            statusColor = '#10B981'; // Green
+            statusColor = '#10B981';
           } else if (team.has_submitted_sheet) {
             status = 'Versão Inicial';
-            statusColor = '#F59E0B'; // Yellow
+            statusColor = '#F59E0B';
           } else {
             status = 'Em Desenvolvimento';
-            statusColor = '#EF4444'; // Red
+            statusColor = '#EF4444';
           }
         }
 
@@ -98,32 +124,32 @@ const BotSeniorChat = () => {
         };
       });
 
-      // Custom sorting logic for students
+      // Your existing sorting logic is excellent and does not need to change.
       if (user?.role === 'student' && user?.team) {
         const { team } = user;
         
         processedDiseases.sort((a, b) => {
-          // Assign priority based on team relationships
           const getPriority = (diseaseId) => {
-            if (diseaseId === team.assignedDiseaseId) return 1; // Green - Own disease
-            if (diseaseId === team.blueTeamDiseaseId) return 2; // Blue - Review target
-            if (diseaseId === team.redTeam1TargetId || diseaseId === team.redTeam2TargetId) return 3; // Red - Challenge targets
-            return 4; // Other diseases
+            const blueTeamDiseaseId = newTeamDiseaseMap.get(team.blueTeamReviewTargetId);
+            const redTeam1DiseaseId = newTeamDiseaseMap.get(team.redTeam1TargetId);
+            const redTeam2DiseaseId = newTeamDiseaseMap.get(team.redTeam2TargetId);
+
+            if (diseaseId === team.assignedDiseaseId) return 1;
+            if (diseaseId === blueTeamDiseaseId) return 2;
+            if (diseaseId === redTeam1DiseaseId || diseaseId === redTeam2DiseaseId) return 3;
+            return 4;
           };
           
           const priorityA = getPriority(a.id);
           const priorityB = getPriority(b.id);
           
-          // If priorities are different, sort by priority
           if (priorityA !== priorityB) {
             return priorityA - priorityB;
           }
           
-          // If same priority (especially for "other diseases"), sort alphabetically
           return a.name.localeCompare(b.name, 'pt-PT');
         });
       } else {
-        // For professors/admins, just sort alphabetically
         processedDiseases.sort((a, b) => a.name.localeCompare(b.name, 'pt-PT'));
       }
 
@@ -134,6 +160,9 @@ const BotSeniorChat = () => {
       setLoadingDiseases(false);
     }
   };
+  
+  // No other functions below this point need to be changed.
+  // ... (handleSubmit, handleFeedback, saveFeedback, etc. all remain the same) ...
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -151,18 +180,15 @@ const BotSeniorChat = () => {
     setIsLoading(true);
     setShowTimeout(false);
 
-    // Cancel any previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Create new abort controller
     abortControllerRef.current = new AbortController();
 
-    // Set timeout for showing timeout message
     const timeoutId = setTimeout(() => {
       setShowTimeout(true);
-    }, 10000); // Show after 10 seconds
+    }, 10000);
 
     const startTime = Date.now();
 
@@ -177,7 +203,7 @@ const BotSeniorChat = () => {
           user: {
             id: user.id,
             email: user.email,
-            full_name: user.full_name,
+            full_name: user.name,
             role: user.role,
             team_id: user.teamId
           }
@@ -196,7 +222,6 @@ const BotSeniorChat = () => {
       const endTime = Date.now();
       const responseTime = (endTime - startTime) / 1000;
 
-      // Extract the actual message content from the JSON response
       const messageContent = data.output || data.answer || data.text || data.message || data.response ||
                             (data.data && (data.data.output || data.data.answer || data.data.text || data.data.message)) ||
                             (typeof data === 'string' ? data : 'Desculpe, não consegui processar a sua pergunta.');
@@ -241,32 +266,22 @@ const BotSeniorChat = () => {
   };
 
   const handleFeedback = (feedbackData) => {
-    console.log('BotSeniorChat handleFeedback called with:', feedbackData);
-    
-    // Set current feedback and open appropriate modal
-    // Note: Quota checking is already handled in ChatMessage component
     setCurrentFeedback(feedbackData);
-    
     if (feedbackData.type === 'positive') {
-      console.log('Opening positive feedback modal');
       setShowFeedbackModal(true);
     } else {
-      console.log('Opening negative feedback modal');
       setShowNegativeFeedbackModal(true);
     }
   };
 
   const saveFeedback = async (feedback, feedbackData = '') => {
     try {
-      // Use the new quota system
       const quotaResult = await updateFeedbackQuota('bot_senior');
-
       if (!quotaResult.success) {
         alert(quotaResult.message);
         return;
       }
 
-      // Prepare the insert data
       const insertData = {
         user_id: user.id,
         team_id: user.teamId,
@@ -276,7 +291,6 @@ const BotSeniorChat = () => {
         bot_id: 'bot_senior'
       };
 
-      // If it's positive feedback with structured data, add the details
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {
         insertData.positive_feedback_details = {
           options: feedbackData.feedback.options,
@@ -284,13 +298,8 @@ const BotSeniorChat = () => {
         };
       }
 
-      const { error } = await supabase
-        .from('chat_logs')
-        .insert(insertData);
-
+      const { error } = await supabase.from('chat_logs').insert(insertData);
       if (error) throw error;
-
-      console.log('Feedback saved successfully');
 
     } catch (error) {
       console.error('Error saving feedback:', error);
@@ -337,8 +346,6 @@ const BotSeniorChat = () => {
               <p className="text-sm text-gray-300">{BOTS.bot_senior.description}</p>
             </div>
           </div>
-          
-          {/* Quota Display */}
           {user && user.role === 'student' && user.feedbackQuotas && user.feedbackQuotas.bot_senior && (
             <div className="text-right">
               <p className="text-sm text-gray-300">Feedbacks restantes</p>
@@ -353,7 +360,6 @@ const BotSeniorChat = () => {
       {/* Disease Status Panel */}
       <div className="p-4 border-b" style={{ borderColor: '#475569', backgroundColor: '#1e293b' }}>
         <h3 className="text-sm font-bold text-white mb-3">Estado das Doenças Disponíveis</h3>
-        
         {loadingDiseases ? (
           <div className="flex items-center space-x-2">
             <div className="w-4 h-4 bg-gray-400 rounded-full animate-bounce"></div>
@@ -377,7 +383,6 @@ const BotSeniorChat = () => {
             ))}
           </div>
         )}
-        
         <div className="mt-3 text-xs text-gray-400 flex flex-wrap gap-x-4 gap-y-2">
           <div>
             <span className="font-bold">Legenda de Estado:</span>
@@ -481,12 +486,14 @@ const BotSeniorChat = () => {
       </div>
 
       {/* Modals */}
-      {showFeedbackModal && (
-        <FeedbackModal
-          onSubmit={handlePositiveFeedbackSubmit}
-          onClose={() => setShowFeedbackModal(false)}
-        />
-      )}
+      
+         <FeedbackModal
+        isOpen={showFeedbackModal}
+        onSubmit={handlePositiveFeedbackSubmit}
+        onClose={() => setShowFeedbackModal(false)}
+        question={currentFeedback?.question || ''}
+        answer={currentFeedback?.answer || ''}
+      />
 
       <FeedbackNegativoModal
         isOpen={showNegativeFeedbackModal}

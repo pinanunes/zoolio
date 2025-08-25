@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import toast from 'react-hot-toast';
+import FormattedResponse from '../FormattedResponse'; // Adjust path if needed
 
 const ArenaFeedbackValidation = () => {
   const { user } = useAuth();
@@ -43,15 +44,16 @@ const ArenaFeedbackValidation = () => {
     }
   };
 
-  const loadArenaFeedback = async () => {
+    const loadArenaFeedback = async () => {
     try {
       let query = supabase
         .from('comparative_chat_logs')
         .select(`
           *,
-          profiles (full_name, team_id, teams (team_name))
+          profiles!user_id (full_name, team_id, teams!fk_team (team_name))
         `)
         .not('justification', 'is', null)
+        .eq('is_archived', false) // <-- THE FIX
         .order('created_at', { ascending: false });
 
       // Apply team filter
@@ -70,20 +72,20 @@ const ArenaFeedbackValidation = () => {
         }
       }
 
-      const { data } = await query.limit(50);
-      
-      setArenaFeedback(data || []);
+      const { data, error } = await query.limit(50);
+
+      if (error) throw error;
       
       let filteredData = data || [];
       
-      // Apply validation filter
+      // Apply validation filter (client-side)
       if (filters.hasValidation === 'validated') {
         filteredData = filteredData.filter(log => log.is_validated === true);
       } else if (filters.hasValidation === 'pending') {
         filteredData = filteredData.filter(log => log.is_validated !== true);
       }
 
-      // Apply keyword filter
+      // Apply keyword filter (client-side)
       if (filters.keyword && filters.keyword.trim()) {
         const keyword = filters.keyword.trim().toLowerCase();
         filteredData = filteredData.filter(log => 
@@ -98,10 +100,11 @@ const ArenaFeedbackValidation = () => {
       setArenaFeedback(filteredData);
     } catch (error) {
       console.error('Error loading arena feedback:', error);
+      toast.error(`Failed to load Arena feedback: ${error.message}`);
     }
   };
 
-  const validateArenaFeedback = async (logId, comment, pointsAwarded) => {
+    const validateArenaFeedback = async (logId, comment, pointsAwarded) => {
     try {
       setProcessing(prev => ({ ...prev, [logId]: true }));
 
@@ -119,20 +122,23 @@ const ArenaFeedbackValidation = () => {
 
       if (error) throw error;
 
-      // Update team points if points were awarded
+      // --- START OF THE FIX ---
+      // Update team AND personal points if points were awarded
       if (pointsAwarded > 0) {
         const log = arenaFeedback.find(l => l.id === logId);
         if (log?.profiles?.team_id) {
           const { error: pointsError } = await supabase.rpc('increment_team_points', {
-            team_id: log.profiles.team_id,
-            points_to_add: pointsAwarded
+            p_team_id: log.profiles.team_id,
+            p_points_to_add: pointsAwarded,
+            p_user_id: log.user_id // Pass the student's ID
           });
           
           if (pointsError) {
-            console.error('Error updating team points:', pointsError);
+            console.error('Error updating points:', pointsError);
           }
         }
       }
+      // --- END OF THE FIX ---
 
       // Reload data
       await loadArenaFeedback();
@@ -386,9 +392,13 @@ const ArenaFeedbackCard = ({ log, onValidate, processing }) => {
                   </span>
                 )}
               </div>
-              <p className="text-gray-300 text-xs">
-                {expandedAnswers[expandKey] ? answer : truncateText(answer, 100)}
-              </p>
+              <div className="text-gray-300 text-xs">
+                {expandedAnswers[expandKey] ? (
+                  <FormattedResponse text={answer} />
+                ) : (
+                  <FormattedResponse text={truncateText(answer, 100)} />
+                )}
+              </div>
               {needsTruncation(answer, 100) && (
                 <button
                   onClick={() => toggleExpanded(expandKey)}

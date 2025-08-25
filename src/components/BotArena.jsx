@@ -6,7 +6,7 @@ import FormattedArenaResponse from './FormattedArenaResponse';
 import ArenaFeedbackModal from './ArenaFeedbackModal';
 
 const BotArena = () => {
-  const { user, refreshUserProfile, updateFeedbackQuota } = useAuth();
+  const { user, updateFeedbackQuota } = useAuth();
   const [question, setQuestion] = useState('');
   const [responses, setResponses] = useState({
     bot1: { text: '', loading: false, responseTime: null },
@@ -17,12 +17,15 @@ const BotArena = () => {
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [selectedBotInfo, setSelectedBotInfo] = useState(null);
 
-  // Determine unlock status and available bots directly from user context
   const isProfessorOrAdmin = user?.role === 'professor' || user?.role === 'admin';
+
+  // --- START OF THE FIX ---
+  // Use the correct property names from the user.team object
   const teamProgress = {
-    hasSubmittedSheet: user?.team?.fichaEntregue || false,
-    hasSubmittedReview: user?.team?.revisaoEntregue || false
+    hasSubmittedSheet: user?.team?.has_submitted_sheet || false,
+    hasSubmittedReview: user?.team?.has_submitted_review || false
   };
+  // --- END OF THE FIX ---
 
   const isUnlocked = isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview);
   
@@ -34,7 +37,6 @@ const BotArena = () => {
   const sendToAllBots = async () => {
     if (!question.trim() || !isUnlocked || arenaBots.length === 0) return;
 
-    // Reset responses and set loading states
     setResponses({
       bot1: { text: '', loading: true, responseTime: null },
       bot2: { text: '', loading: true, responseTime: null },
@@ -42,10 +44,8 @@ const BotArena = () => {
     });
     setSelectedBot(null);
 
-    // Record start time for response time tracking
     const startTime = Date.now();
 
-    // Send to all bots simultaneously
     const promises = arenaBots.map(async (bot, index) => {
       const botKey = `bot${index + 1}`;
       const botStartTime = Date.now();
@@ -61,7 +61,7 @@ const BotArena = () => {
             user: {
               id: user.id,
               email: user.email,
-              full_name: user.full_name,
+              full_name: user.name, // Use user.name consistent with AuthContext
               role: user.role,
               team_id: user.teamId
             }
@@ -73,12 +73,8 @@ const BotArena = () => {
         }
 
         const data = await response.json();
-        console.log(`${bot.name} response:`, data); // Debug log
-        
-        // Calculate response time
         const responseTime = (Date.now() - botStartTime) / 1000;
         
-        // Extract response text
         const botResponse = data.answer || data.response || data.message || data.text || data.output ||
                            (data.data && (data.data.answer || data.data.response || data.data.message || data.data.text)) ||
                            'Desculpe, não consegui processar a sua pergunta.';
@@ -102,9 +98,8 @@ const BotArena = () => {
   };
 
   const selectBestBot = (botNumber) => {
-    if (selectedBot) return; // Already selected
+    if (selectedBot) return;
 
-    // Check quota for students
     if (user?.role === 'student') {
       const arenaQuota = user?.feedbackQuotas?.bot_arena?.remaining || 0;
       if (arenaQuota <= 0) {
@@ -124,7 +119,6 @@ const BotArena = () => {
 
   const handleFeedbackSubmit = async (justification) => {
     try {
-      // Save to comparative_chat_logs with justification
       await supabase
         .from('comparative_chat_logs')
         .insert([{
@@ -137,7 +131,6 @@ const BotArena = () => {
           justification: justification
         }]);
 
-      // Update Arena feedback quota for students using the existing quota system
       if (user?.role === 'student') {
         await updateFeedbackQuota('bot_arena');
       }
@@ -188,15 +181,14 @@ const BotArena = () => {
     );
   }
 
+  // The rest of your component remains the same...
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">Arena de Bots</h2>
         <p className="text-gray-300">Compare as respostas de diferentes bots e vote na melhor resposta.</p>
       </div>
 
-      {/* User Info and Quota Display */}
       <div className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <div className="flex justify-between items-center">
           <div>
@@ -216,14 +208,10 @@ const BotArena = () => {
                 {user?.feedbackQuotas?.bot_arena?.remaining || 0}/{user?.feedbackQuotas?.bot_arena?.max || 5}
               </span>
             </div>
-            {user?.role !== 'student' && (
-              <p className="text-xs text-green-400 mt-1">Sem limite (Professor/Admin)</p>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Question Input */}
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -255,7 +243,6 @@ const BotArena = () => {
         </div>
       </div>
 
-      {/* Bot Responses */}
       {(question && (responses.bot1.text || responses.bot1.loading)) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {arenaBots.map((bot, index) => {
@@ -270,16 +257,12 @@ const BotArena = () => {
                       className="w-8 h-8 rounded-full flex items-center justify-center"
                       style={{ backgroundColor: bot.color }}
                     >
-                      {bot.icon && bot.icon !== '/src/assets/bot_junior_icon.png' ? (
+                      {bot.icon && (
                         <img 
                           src={bot.icon} 
                           alt={bot.name}
                           className="w-6 h-6 rounded-full object-cover"
                         />
-                      ) : (
-                        <span className="text-white text-xs font-medium">
-                          {bot.name.charAt(0)}
-                        </span>
                       )}
                     </div>
                     <h3 className="font-bold text-white" style={{ color: bot.color }}>
@@ -336,7 +319,6 @@ const BotArena = () => {
         </div>
       )}
 
-      {/* Arena Feedback Modal */}
       <ArenaFeedbackModal
         isOpen={isFeedbackModalOpen}
         onClose={handleFeedbackModalClose}

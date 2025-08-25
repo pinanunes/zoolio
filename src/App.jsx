@@ -12,17 +12,10 @@ import BackOffice from './pages/BackOffice';
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
   
+  // This component will now only be rendered when loading is false.
+  // We still keep the check as a fallback.
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg animate-pulse" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
-            <span className="text-white font-bold text-2xl">Z</span>
-          </div>
-          <p className="text-white">A carregar...</p>
-        </div>
-      </div>
-    );
+    return null; // Or a minimal spinner
   }
   
   return user ? children : <Navigate to="/login" />;
@@ -32,23 +25,13 @@ const AdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
-        <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg animate-pulse" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
-            <span className="text-white font-bold text-2xl">Z</span>
-          </div>
-          <p className="text-white">A carregar...</p>
-        </div>
-      </div>
-    );
+    return null; // Or a minimal spinner
   }
   
   if (!user) {
     return <Navigate to="/login" />;
   }
   
-  // Check if user has admin or professor role
   if (user.role !== 'professor' && user.role !== 'admin') {
     return <Navigate to="/" />;
   }
@@ -57,8 +40,11 @@ const AdminRoute = ({ children }) => {
 };
 
 function App() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
   
+  // --- THIS IS THE KEY CHANGE ---
+  // The loading screen is now the ONLY thing that can render while loading is true.
+  // This prevents the Routes from rendering prematurely.
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
@@ -83,6 +69,7 @@ function App() {
     );
   }
   
+  // This part will now only render after loading is false.
   return (
     <Routes>
       <Route path="/login" element={<PaginaLogin />} />
@@ -90,7 +77,6 @@ function App() {
       <Route path="/forgot-password" element={<PaginaEsqueciPassword />} />
       <Route path="/update-password" element={<PaginaUpdatePassword />} />
       
-      {/* Front Office - Main application for students */}
       <Route
         path="/"
         element={
@@ -100,7 +86,6 @@ function App() {
         }
       />
       
-      {/* Legacy chat route - redirect to main app */}
       <Route
         path="/chat"
         element={
@@ -110,7 +95,6 @@ function App() {
         }
       />
       
-      {/* Back Office - Admin/Professor area */}
       <Route
         path="/backoffice/*"
         element={

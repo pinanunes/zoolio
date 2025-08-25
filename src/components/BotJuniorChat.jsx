@@ -336,19 +336,23 @@ const BotJuniorChat = () => {
       </div>
 
       {/* Modals */}
-      <FeedbackModal
-        isOpen={showFeedbackModal}
-        onSubmit={handlePositiveFeedbackSubmit}
-        onClose={() => setShowFeedbackModal(false)}
-      />
+      <>
+        <FeedbackModal
+          isOpen={showFeedbackModal}
+          onSubmit={handlePositiveFeedbackSubmit}
+          onClose={() => setShowFeedbackModal(false)}
+          question={currentFeedback?.question || ''}
+          answer={currentFeedback?.answer || ''}
+        />
 
-      <FeedbackNegativoModal
-        isOpen={showNegativeFeedbackModal}
-        onSubmit={handleNegativeFeedbackSubmit}
-        onClose={() => setShowNegativeFeedbackModal(false)}
-        question={currentFeedback?.question || ''}
-        answer={currentFeedback?.answer || ''}
-      />
+        <FeedbackNegativoModal
+          isOpen={showNegativeFeedbackModal}
+          onSubmit={handleNegativeFeedbackSubmit}
+          onClose={() => setShowNegativeFeedbackModal(false)}
+          question={currentFeedback?.question || ''}
+          answer={currentFeedback?.answer || ''}
+        />
+      </>
     </div>
   );
 };

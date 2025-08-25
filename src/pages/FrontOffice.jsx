@@ -22,8 +22,8 @@ const FrontOffice = () => {
 
   // Get team progress directly from user context
   const teamProgress = {
-    hasSubmittedSheet: user?.team?.fichaEntregue || false,
-    hasSubmittedReview: user?.team?.revisaoEntregue || false
+    hasSubmittedSheet: user?.team?.has_submitted_sheet || false,
+    hasSubmittedReview: user?.team?.has_submitted_review || false
   };
 
   // Generate tabs based on team progress

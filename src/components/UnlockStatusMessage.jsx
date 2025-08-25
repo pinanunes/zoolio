@@ -8,9 +8,12 @@ const UnlockStatusMessage = () => {
   if (!user || user.role === 'professor' || user.role === 'admin') {
     return null;
   }
-
-  const fichaEntregue = user.team?.fichaEntregue || false;
-  const revisaoEntregue = user.team?.revisaoEntregue || false;
+  
+  // --- START OF THE FIX ---
+  // Use the correct property names from the user.team object
+  const fichaEntregue = user.team?.has_submitted_sheet || false;
+  const revisaoEntregue = user.team?.has_submitted_review || false;
+  // --- END OF THE FIX ---
 
   let message = '';
   let bgColor = '';
@@ -24,16 +27,20 @@ const UnlockStatusMessage = () => {
     textColor = 'text-red-200';
   } else if (fichaEntregue && !revisaoEntregue) {
     message = 'A sua equipa já submeteu a Ficha da sua Equipa mas ainda não validou a Ficha da Blue team. Já tem acesso ao Bot Senior mas a Arena de Bots permanece bloqueada.';
-    bgColor = 'bg-orange-800';
-    borderColor = 'border-orange-600';
-    textColor = 'text-orange-200';
+    bgColor = 'bg-yellow-800'; // Changed to yellow to better represent "in progress"
+    borderColor = 'border-yellow-600';
+    textColor = 'text-yellow-200';
   } else if (fichaEntregue && revisaoEntregue) {
-    message = 'A sua equipa já submeteu a Ficha da sua Equipa e validou a Ficha da Blue team. Já tem acesso ao Bot Senior e à Arena de Bots.';
-    bgColor = 'bg-green-800';
-    borderColor = 'border-green-600';
-    textColor = 'text-green-200';
+    // This message is positive, so we don't need to show a big status box.
+    // Returning null makes the UI cleaner once everything is unlocked.
+    return null;
   }
 
+  // This condition handles the case where a team might not be assigned yet.
+  if (!user.team) {
+    return null;
+  }
+  
   if (!message) {
     return null;
   }
@@ -41,7 +48,7 @@ const UnlockStatusMessage = () => {
   return (
     <div className={`p-4 rounded-lg border ${bgColor} ${borderColor}`}>
       <h3 className={`font-bold ${textColor}`}>Estado da Ficha Informativa</h3>
-      <p className={`${textColor} mt-1`}>{message}</p>
+      <p className={`${textColor} mt-1 text-sm`}>{message}</p>
     </div>
   );
 };

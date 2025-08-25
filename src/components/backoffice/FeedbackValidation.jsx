@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { BOTS } from '../../config/bots';
 import toast, { Toaster } from 'react-hot-toast';
 import ArenaFeedbackValidation from './ArenaFeedbackValidation';
+import FormattedResponse from '../FormattedResponse'; // Adjust path if needed
 
 const FeedbackValidation = () => {
   const { user } = useAuth();
@@ -57,30 +58,39 @@ const FeedbackValidation = () => {
 
   const loadGlobalStats = async () => {
     try {
-      // Get total count of chat feedbacks
+      // --- START OF THE FIX ---
+      // Add .eq('is_archived', false) to all count queries
+
+      // Get total count of non-archived chat feedbacks
       const { count: chatFeedbackCount } = await supabase
         .from('chat_logs')
         .select('*', { count: 'exact', head: true })
-        .not('feedback', 'is', null);
+        .not('feedback', 'is', null)
+        .eq('is_archived', false); // <-- THE FIX
 
-      // Get total count of arena feedbacks
+      // Get total count of non-archived arena feedbacks
       const { count: arenaFeedbackCount } = await supabase
         .from('comparative_chat_logs')
         .select('*', { count: 'exact', head: true })
-        .not('justification', 'is', null);
+        .not('justification', 'is', null)
+        .eq('is_archived', false); // <-- THE FIX
 
-      // Get count of validated chat feedbacks
+      // Get count of non-archived validated chat feedbacks
       const { count: validatedChatCount } = await supabase
         .from('feedback_validations')
         .select('*', { count: 'exact', head: true })
-        .eq('is_validated', true);
+        .eq('is_validated', true)
+        .eq('is_archived', false); // <-- THE FIX
 
-      // Get count of validated arena feedbacks
+      // Get count of non-archived validated arena feedbacks
       const { count: validatedArenaCount } = await supabase
         .from('comparative_chat_logs')
         .select('*', { count: 'exact', head: true })
         .eq('is_validated', true)
-        .not('justification', 'is', null);
+        .not('justification', 'is', null)
+        .eq('is_archived', false); // <-- THE FIX
+
+      // --- END OF THE FIX ---
 
       const totalCount = (chatFeedbackCount || 0) + (arenaFeedbackCount || 0);
       const validatedCount = (validatedChatCount || 0) + (validatedArenaCount || 0);
@@ -96,130 +106,92 @@ const FeedbackValidation = () => {
     }
   };
 
-  const loadFeedbackLogs = async () => {
+    const loadFeedbackLogs = async () => {
     try {
-      // Load regular chat feedback
+      // This component now ONLY fetches regular chat feedback
       let chatQuery = supabase
         .from('chat_logs')
         .select(`
           *,
           profiles (full_name),
           teams (team_name),
-          feedback_validations (
-            id,
-            comment,
-            is_validated,
-            points_awarded,
-            created_at,
-            professor:profiles!feedback_validations_professor_id_fkey (full_name)
-          )
+          feedback_validations (*)
         `)
         .not('feedback', 'is', null)
+        .eq('is_archived', false) // <-- THE FIX
         .order('created_at', { ascending: false });
 
-      // Load Arena feedback
-      let arenaQuery = supabase
-        .from('comparative_chat_logs')
-        .select(`
-          *,
-          profiles (full_name, team_id, teams (team_name))
-        `)
-        .not('justification', 'is', null)
-        .order('created_at', { ascending: false });
-
-      // Apply team filter to both queries
+      // Apply server-side filters
       if (filters.team) {
         chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
-        
-        // For arena, we need to get user IDs from the selected team
-        const { data: usersInTeam } = await supabase
+      }
+      
+      // Note: Validation and keyword filters will be applied client-side for simplicity
+
+      const { data: chatData, error: chatError } = await chatQuery.limit(100); // Increased limit slightly
+
+      if (chatError) throw chatError;
+
+      // Process professor names for chat logs
+      const professorIds = new Set();
+      chatData.forEach(log => {
+        log.feedback_validations?.forEach(val => {
+          if (val.professor_id) professorIds.add(val.professor_id);
+        });
+      });
+
+      let professorsMap = new Map();
+      if (professorIds.size > 0) {
+        const { data: professorsData, error: profsError } = await supabase
           .from('profiles')
-          .select('id')
-          .eq('team_id', parseInt(filters.team));
+          .select('id, full_name')
+          .in('id', Array.from(professorIds));
         
-        if (usersInTeam && usersInTeam.length > 0) {
-          const userIds = usersInTeam.map(user => user.id);
-          arenaQuery = arenaQuery.in('user_id', userIds);
-        } else {
-          arenaQuery = arenaQuery.eq('user_id', 'no-match'); // Force no results
-        }
+        if (profsError) throw profsError;
+        professorsData.forEach(prof => professorsMap.set(prof.id, prof.full_name));
       }
 
+      chatData.forEach(log => {
+        log.feedback_validations?.forEach(val => {
+          if (val.professor_id) {
+            val.professor = { full_name: professorsMap.get(val.professor_id) || 'Professor desconhecido' };
+          }
+        });
+      });
+      
+      // Apply client-side filters
+      let filteredFeedback = chatData.map(log => ({ ...log, type: 'chat' }));
 
-      const [chatData, arenaData] = await Promise.all([
-        chatQuery.limit(50),
-        arenaQuery.limit(50)
-      ]);
-      
-      let allFeedback = [];
-      
-      // Process regular chat feedback
-      if (chatData.data) {
-        const chatFeedback = chatData.data.map(log => ({
-          ...log,
-          type: 'chat',
-          source: log.bot_id === 'bot_junior' ? 'Bot Junior' : 'Bot Senior'
-        }));
-        allFeedback = [...allFeedback, ...chatFeedback];
-      }
-      
-      // Process Arena feedback
-      if (arenaData.data) {
-        const arenaFeedback = arenaData.data.map(log => ({
-          ...log,
-          type: 'arena',
-          source: 'Arena de Bots',
-          // Map Arena fields to match chat log structure for consistency
-          feedback: 1, // Arena feedback is always positive (they selected best answer)
-          answer: `Bot 1: ${log.answer_1}\n\nBot 2: ${log.answer_2}\n\nBot 3: ${log.answer_3}\n\nMelhor resposta selecionada: Bot ${log.voted_best_answer}`,
-          // Create a pseudo feedback_validations structure for consistency
-          feedback_validations: log.is_validated ? [{
-            id: `arena_${log.id}`,
-            comment: log.validation_comment,
-            is_validated: log.is_validated,
-            points_awarded: log.points_awarded,
-            created_at: log.validated_at,
-            professor: { full_name: 'Professor' }
-          }] : [],
-          // Map team info correctly
-          teams: log.profiles?.teams
-        }));
-        allFeedback = [...allFeedback, ...arenaFeedback];
-      }
-      
-      // Sort by creation date
-      allFeedback.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      
-      // Apply validation filter
       if (filters.hasValidation === 'validated') {
-        allFeedback = allFeedback.filter(log => 
-          (log.type === 'chat' && log.feedback_validations && log.feedback_validations.length > 0 && log.feedback_validations[0].is_validated === true) ||
-          (log.type === 'arena' && log.is_validated === true)
+        filteredFeedback = filteredFeedback.filter(log => 
+          log.feedback_validations?.some(v => v.is_validated)
         );
       } else if (filters.hasValidation === 'pending') {
-        allFeedback = allFeedback.filter(log => 
-          (log.type === 'chat' && (!log.feedback_validations || log.feedback_validations.length === 0 || log.feedback_validations[0].is_validated !== true)) ||
-          (log.type === 'arena' && log.is_validated !== true)
+        filteredFeedback = filteredFeedback.filter(log => 
+          !log.feedback_validations?.some(v => v.is_validated)
         );
       }
 
-      // Apply keyword filter
-      if (filters.keyword && filters.keyword.trim()) {
+      if (filters.keyword?.trim()) {
         const keyword = filters.keyword.trim().toLowerCase();
-        allFeedback = allFeedback.filter(log => 
-          (log.question && log.question.toLowerCase().includes(keyword)) ||
-          (log.answer && log.answer.toLowerCase().includes(keyword)) ||
-          (log.justification && log.justification.toLowerCase().includes(keyword))
+        filteredFeedback = filteredFeedback.filter(log => 
+          log.question?.toLowerCase().includes(keyword) ||
+          log.answer?.toLowerCase().includes(keyword)
         );
       }
 
-      setFeedbackLogs(allFeedback);
+      setFeedbackLogs(filteredFeedback);
+
     } catch (error) {
       console.error('Error loading feedback logs:', error);
+      toast.error(`Failed to load feedback: ${error.message}`, {
+        duration: 5000,
+        position: 'top-right',
+      });
     }
   };
 
-  const validateFeedback = async (logId, comment, pointsAwarded) => {
+    const validateFeedback = async (logId, comment, pointsAwarded) => {
     try {
       setProcessing(prev => ({ ...prev, [logId]: true }));
 
@@ -240,17 +212,21 @@ const FeedbackValidation = () => {
 
         if (error) throw error;
 
-        // Update team points if points were awarded
+        // --- START OF ARENA POINTS FIX ---
+        // Update team AND personal points if points were awarded
         if (pointsAwarded > 0 && log?.profiles?.team_id) {
           const { error: pointsError } = await supabase.rpc('increment_team_points', {
-            team_id: log.profiles.team_id,
-            points_to_add: pointsAwarded
+            p_team_id: log.profiles.team_id,
+            p_points_to_add: pointsAwarded,
+            p_user_id: log.user_id // Pass the student's ID
           });
           
           if (pointsError) {
-            console.error('Error updating team points:', pointsError);
+            console.error('Error updating points:', pointsError);
           }
         }
+        // --- END OF ARENA POINTS FIX ---
+
       } else {
         // Handle regular chat feedback validation
         const existingValidation = log?.feedback_validations?.[0];
@@ -282,17 +258,20 @@ const FeedbackValidation = () => {
           if (error) throw error;
         }
 
-        // Update team points if points were awarded
+        // --- START OF CHAT POINTS FIX ---
+        // Update team AND personal points if points were awarded
         if (pointsAwarded > 0 && log?.team_id) {
           const { error: pointsError } = await supabase.rpc('increment_team_points', {
-            team_id: log.team_id,
-            points_to_add: pointsAwarded
+            p_team_id: log.team_id,
+            p_points_to_add: pointsAwarded,
+            p_user_id: log.user_id // Pass the student's ID
           });
           
           if (pointsError) {
-            console.error('Error updating team points:', pointsError);
+            console.error('Error updating points:', pointsError);
           }
         }
+        // --- END OF CHAT POINTS FIX ---
       }
 
       // Reload data
@@ -593,11 +572,17 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
             </button>
           )}
         </div>
-        <div>
-          <p className="text-gray-300 text-sm">
-            <strong>Resposta:</strong>{' '}
-            {expandedAnswer ? log.answer : truncateText(log.answer)}
+       <div>
+          <p className="text-sm">
+            <strong className="text-white">Resposta:</strong>
           </p>
+          <div className="mt-1 text-gray-300 text-sm">
+            {expandedAnswer ? (
+              <FormattedResponse text={log.answer} />
+            ) : (
+              <FormattedResponse text={truncateText(log.answer)} />
+            )}
+          </div>
           {needsTruncation(log.answer) && (
             <button
               onClick={() => setExpandedAnswer(!expandedAnswer)}

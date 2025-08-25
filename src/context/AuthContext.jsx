@@ -13,13 +13,13 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Manages the initial auth check
 
+  // This is your stable, correct fetchUserProfile function.
   const fetchUserProfile = async (authUser) => {
     try {
-      console.log('Fetching profile for user:', authUser.id);
+      console.log('HYDRATION: Fetching full profile for user:', authUser.id);
       
-      // First, get the basic profile data
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -27,30 +27,19 @@ export const AuthProvider = ({ children }) => {
         .single();
 
       if (profileError) {
-        console.error('Error fetching profile:', profileError);
-        // Return basic user data if profile fetch fails
-        return {
-          id: authUser.id,
-          email: authUser.email,
-          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Utilizador',
-          role: authUser.user_metadata?.role || 'student',
-          personalPoints: 0,
-          feedbackQuotas: {
-            bot_junior: { used: 0, remaining: 5, max: 5 },
-            bot_senior: { used: 0, remaining: 5, max: 5 },
-            bot_arena: { used: 0, remaining: 5, max: 5 }
-          },
-          team: null
-        };
+        console.error('HYDRATION ERROR: Error fetching profile:', profileError);
+        // If profile fails, log out the user to prevent an inconsistent state
+        await supabase.auth.signOut();
+        return null;
       }
 
-      console.log('Profile fetched successfully:', profile);
+      console.log('HYDRATION: Profile fetched successfully:', profile);
 
-      // Get feedback quotas using the new system
+      const MAX_QUOTA = 5;
       let feedbackQuotas = {
-        bot_junior: { used: 0, remaining: 5, max: 5 },
-        bot_senior: { used: 0, remaining: 5, max: 5 },
-        bot_arena: { used: 0, remaining: 5, max: 5 }
+        bot_junior: { used: 0, remaining: MAX_QUOTA, max: MAX_QUOTA },
+        bot_senior: { used: 0, remaining: MAX_QUOTA, max: MAX_QUOTA },
+        bot_arena:  { used: 0, remaining: MAX_QUOTA, max: MAX_QUOTA }
       };
 
       if (profile.role === 'student') {
@@ -58,27 +47,37 @@ export const AuthProvider = ({ children }) => {
           const { data: quotaData, error: quotaError } = await supabase
             .rpc('get_user_feedback_quotas', { p_user_id: profile.id });
 
-          if (!quotaError && quotaData) {
-            feedbackQuotas = quotaData;
+          if (quotaError) {
+             console.warn('HYDRATION: Failed to fetch feedback quotas, using defaults:', quotaError);
+          } else if (quotaData) {
+            quotaData.forEach(q => {
+              if (feedbackQuotas[q.bot_id]) {
+                const used = q.used_count || 0;
+                feedbackQuotas[q.bot_id] = {
+                  used: used,
+                  remaining: Math.max(0, MAX_QUOTA - used),
+                  max: MAX_QUOTA
+                };
+              }
+            });
           }
         } catch (quotaFetchError) {
-          console.warn('Failed to fetch feedback quotas:', quotaFetchError);
+          console.warn('HYDRATION: Error fetching feedback quotas:', quotaFetchError);
         }
       } else {
-        // Professors and admins have unlimited feedback
         feedbackQuotas = {
           bot_junior: { used: 0, remaining: 999, max: 999 },
           bot_senior: { used: 0, remaining: 999, max: 999 },
-          bot_arena: { used: 0, remaining: 999, max: 999 }
+          bot_arena:  { used: 0, remaining: 999, max: 999 }
         };
       }
-
-      // Create base user object with safe defaults
+      
       const userProfile = {
-        id: profile.id,
-        email: profile.email,
-        name: profile.full_name || authUser.email?.split('@')[0] || 'Utilizador',
-        role: profile.role || 'student',
+        // Start with the basic authUser data
+        ...authUser,
+        // Overwrite/add the detailed profile data
+        name: profile.full_name,
+        role: profile.role,
         studentNumber: profile.student_number,
         teamId: profile.team_id,
         isApproved: profile.is_approved,
@@ -87,34 +86,15 @@ export const AuthProvider = ({ children }) => {
         team: null
       };
 
-      // If user has a team, try to fetch team data separately
       if (profile.team_id) {
         try {
-          console.log('Fetching team data for team_id:', profile.team_id);
-          
           const { data: teamData, error: teamError } = await supabase
             .from('teams')
-            .select(`
-              id,
-              team_name,
-              assigned_disease_id,
-              supervisor_id,
-              blue_team_review_target_id,
-              red_team_1_target_id,
-              red_team_2_target_id,
-              points,
-              has_submitted_sheet,
-              has_submitted_review,
-              diseases (
-                id,
-                name
-              )
-            `)
+            .select(`*, diseases (id, name)`)
             .eq('id', profile.team_id)
             .single();
 
           if (!teamError && teamData) {
-            console.log('Team data fetched successfully:', teamData);
             userProfile.team = {
               id: teamData.id,
               name: teamData.team_name,
@@ -124,200 +104,75 @@ export const AuthProvider = ({ children }) => {
               blueTeamReviewTargetId: teamData.blue_team_review_target_id,
               redTeam1TargetId: teamData.red_team_1_target_id,
               redTeam2TargetId: teamData.red_team_2_target_id,
-              fichaEntregue: teamData.has_submitted_sheet || false,
-              revisaoEntregue: teamData.has_submitted_review || false,
-              disease: teamData.diseases ? {
-                id: teamData.diseases.id,
-                name: teamData.diseases.name
-              } : null
+              has_submitted_sheet: teamData.has_submitted_sheet || false,
+              has_submitted_review: teamData.has_submitted_review || false,
+              disease: teamData.diseases ? { id: teamData.diseases.id, name: teamData.diseases.name } : null
             };
-
-            // If there's a blue team target, fetch its disease ID separately
-            if (teamData.blue_team_review_target_id) {
-              const { data: blueTeam, error: blueTeamError } = await supabase
-                .from('teams')
-                .select('assigned_disease_id')
-                .eq('id', teamData.blue_team_review_target_id)
-                .single();
-
-              if (!blueTeamError && blueTeam) {
-                userProfile.team.blueTeamDiseaseId = blueTeam.assigned_disease_id;
-              } else {
-                console.warn('Error fetching blue team disease ID:', blueTeamError);
-              }
-            }
-
-          } else {
-            console.warn('Error fetching team data:', teamError);
           }
         } catch (teamFetchError) {
-          console.warn('Failed to fetch team data:', teamFetchError);
+          console.warn('HYDRATION: Failed to fetch team data:', teamFetchError);
         }
       }
-
-      console.log('Final user profile:', userProfile);
+      console.log('HYDRATION: Final user profile constructed:', userProfile);
       return userProfile;
 
     } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
-      // Return safe fallback data
-      return {
-        id: authUser.id,
-        email: authUser.email,
-        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Utilizador',
-        role: authUser.user_metadata?.role || 'student',
-        personalPoints: 0,
-        feedbackQuotas: {
-          bot_junior: { used: 0, remaining: 5, max: 5 },
-          bot_senior: { used: 0, remaining: 5, max: 5 },
-          bot_arena: { used: 0, remaining: 5, max: 5 }
-        },
-        team: null
-      };
+      console.error('HYDRATION: Critical error in fetchUserProfile:', error);
+      return null;
     }
   };
 
+  // --- START: NEW STAGED HYDRATION LOGIC ---
+
+  // Effect 1: Handles only the initial, fast authentication check.
   useEffect(() => {
     let isMounted = true;
-    let authSubscription = null;
+    console.log("Auth Stage 1: Setting up auth listener.");
 
-    // Add window focus listener to refresh user data when user returns to tab
-    const handleWindowFocus = async () => {
-      if (user && isMounted) {
-        console.log('🔄 Window focused - refreshing user profile...');
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (authUser && isMounted) {
-          const refreshedProfile = await fetchUserProfile(authUser);
-          if (isMounted) {
-            setUser(refreshedProfile);
-            console.log('✅ User profile refreshed on window focus');
-          }
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!isMounted) return;
+        console.log(`Auth Stage 1: onAuthStateChange event: ${event}`);
+        // Set the basic user object immediately. Hydration will happen in the next effect.
+        setUser(session?.user ?? null);
+        // This is the key: we stop loading as soon as we know if there's a session or not.
+        setLoading(false);
       }
-    };
+    );
 
-    const initializeAuth = async () => {
-      try {
-        console.log('🔄 Initializing authentication...');
-        
-        // Get initial session with timeout
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Session check timeout')), 10000)
-        );
-        
-        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
-        
-        if (error) {
-          console.error('❌ Session check error:', error);
-          if (isMounted) {
-            setLoading(false);
-          }
-          return;
-        }
-
-        console.log('📋 Initial session check:', session ? 'Session found' : 'No session');
-
-        if (session?.user && isMounted) {
-          console.log('👤 Fetching user profile for:', session.user.email);
-          const userProfile = await fetchUserProfile(session.user);
-          if (isMounted) {
-            setUser(userProfile);
-            // Force refresh user profile to ensure latest data from database
-            console.log('🔄 Refreshing user profile to ensure latest data...');
-            setTimeout(async () => {
-              if (isMounted) {
-                const refreshedProfile = await fetchUserProfile(session.user);
-                if (isMounted) {
-                  setUser(refreshedProfile);
-                  console.log('✅ User profile refreshed with latest data');
-                }
-              }
-            }, 100);
-          }
-        } else if (isMounted) {
-          setUser(null);
-        }
-
-        // Set up auth state listener
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          async (event, session) => {
-            console.log('🔔 Auth state change:', event, session ? 'Session exists' : 'No session');
-            
-            if (!isMounted) return;
-
-            try {
-              if (session?.user) {
-                console.log('👤 Auth change - fetching profile for:', session.user.email);
-                const userProfile = await fetchUserProfile(session.user);
-                if (isMounted) {
-                  setUser(userProfile);
-                }
-              } else {
-                console.log('🚪 Auth change - user logged out');
-                if (isMounted) {
-                  setUser(null);
-                }
-              }
-            } catch (error) {
-              console.error('❌ Error in auth state change handler:', error);
-              if (isMounted) {
-                setUser(null);
-              }
-            }
-            
-            if (isMounted) {
-              setLoading(false);
-            }
-          }
-        );
-
-        authSubscription = subscription;
-
-      } catch (error) {
-        console.error('❌ Auth initialization error:', error);
-        if (isMounted) {
-          setUser(null);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    initializeAuth();
-
-    // Add window focus event listener
-    window.addEventListener('focus', handleWindowFocus);
-
-    // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up auth context');
+      console.log("Auth Stage 1: Cleaning up listener.");
       isMounted = false;
-      window.removeEventListener('focus', handleWindowFocus);
-      if (authSubscription) {
-        authSubscription.unsubscribe();
-      }
+      subscription?.unsubscribe();
     };
   }, []);
 
-  const login = async (email, password) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+  // Effect 2: Handles the "hydration" of the user profile after authentication is confirmed.
+  useEffect(() => {
+    let isMounted = true;
+    // This effect runs only when the `user` object changes.
+    if (user && !user.name) { // Check if the user object is "raw" (not hydrated)
+      console.log("Auth Stage 2: Raw user detected. Starting profile hydration...");
+      fetchUserProfile(user).then(fullProfile => {
+        if (isMounted) {
+          console.log("Auth Stage 2: Hydration complete. Setting full profile.");
+          setUser(fullProfile);
+        }
       });
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      return { success: true, user: data.user };
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error;
     }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]); // Dependency array ensures this runs when the user state changes
+
+  // --- END: NEW STAGED HYDRATION LOGIC ---
+
+  const login = async (email, password) => {
+    // This will trigger onAuthStateChange, which handles the rest.
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return { success: true, user: data.user };
   };
 
   const register = async (name, email, password, role, studentNumber = null, teamId = null) => {
@@ -333,22 +188,18 @@ export const AuthProvider = ({ children }) => {
         }
       });
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
 
-      // If user was created successfully, create profile
       if (data.user) {
         const profileData = {
           id: data.user.id,
           full_name: name,
           email: email,
           role: role,
-          is_approved: role === 'student' ? true : false, // Students auto-approved, professors need approval
+          is_approved: role === 'student' ? true : false,
           personal_points: 0
         };
 
-        // Add student-specific fields
         if (role === 'student') {
           profileData.student_number = studentNumber;
           profileData.team_id = teamId;
@@ -360,11 +211,9 @@ export const AuthProvider = ({ children }) => {
 
         if (profileError) {
           console.error('Profile creation error:', profileError);
-          // Don't throw error here as auth user was created successfully
         }
       }
 
-      // Check if user needs to confirm email
       if (data.user && !data.session) {
         const message = role === 'professor' 
           ? 'Por favor, verifique o seu email para confirmar a conta. O seu registo aguarda aprovação de um gestor.'
@@ -385,7 +234,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = async () => {
+  /* const logout = async () => {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
@@ -396,8 +245,12 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error:', error);
       throw error;
     }
+  }; */
+  const logout = async () => {
+    // This will trigger onAuthStateChange, which handles the rest.
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   };
-
   const refreshUserProfile = async () => {
     if (user) {
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -412,7 +265,6 @@ export const AuthProvider = ({ children }) => {
     if (!user || user.role !== 'student') return;
 
     try {
-      // Call the database function to check and update quota
       const { data: quotaResult, error } = await supabase
         .rpc('check_and_update_feedback_quota', {
           p_user_id: user.id,
@@ -425,7 +277,6 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (quotaResult.success) {
-        // Update the user's quota in the context
         setUser(prevUser => {
           const updatedQuotas = { ...prevUser.feedbackQuotas };
           if (updatedQuotas[botId]) {

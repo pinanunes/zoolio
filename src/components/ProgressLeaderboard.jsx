@@ -17,53 +17,62 @@ const ProgressLeaderboard = () => {
     loadData();
   }, [user]);
 
-  const loadData = async () => {
+    const loadData = async () => {
     try {
       setLoading(true);
       
-      // Get leaderboard data
-      const { data: teams } = await supabase
+      // Get leaderboard data (no changes here)
+      const { data: teams, error: teamsError } = await supabase
         .from('teams')
         .select('id, team_name, points')
         .order('points', { ascending: false });
 
+      if (teamsError) throw teamsError;
       setLeaderboard(teams || []);
 
-      // Get user's team info - simplified approach
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('team_id')
-        .eq('id', user.id)
-        .single();
-
-      if (profile?.team_id) {
-        // Get team details separately
-        const { data: teamData } = await supabase
-          .from('teams')
-          .select('id, team_name, points, has_submitted_sheet')
-          .eq('id', profile.team_id)
-          .single();
-
-        if (teamData) {
-          setUserTeam(teamData);
-          
-          // Calculate team rank
-          const teamRank = teams.findIndex(team => team.id === teamData.id) + 1;
+      // Get user's team info from the fully hydrated user object in context
+      // This is much more efficient than re-fetching from the database.
+      if (user?.team) {
+        setUserTeam(user.team);
         
-          // Calculate personal contribution (simplified - could be more complex)
-          const { data: userLogs } = await supabase
-            .from('chat_logs')
-            .select('feedback')
-            .eq('user_id', user.id)
-            .not('feedback', 'is', null);
+        // Calculate team rank
+        const teamRank = teams.findIndex(team => team.id === user.team.id) + 1;
+      
+        // --- START OF THE FIX: Corrected Personal Contribution Logic ---
 
-          const personalContribution = userLogs?.filter(log => log.feedback === 1).length || 0;
+        // Count non-archived CHAT feedbacks
+        const { count: chatCount, error: chatError } = await supabase
+          .from('chat_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_archived', false)
+          .not('feedback', 'is', null);
 
-          setUserStats({
-            personalContribution,
-            teamRank
-          });
-        }
+        // Count non-archived ARENA feedbacks
+        const { count: arenaCount, error: arenaError } = await supabase
+          .from('comparative_chat_logs')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_archived', false)
+          .not('justification', 'is', null);
+
+        if (chatError) console.error("Error counting chat logs:", chatError);
+        if (arenaError) console.error("Error counting arena logs:", arenaError);
+
+        // Combine the counts from both sources
+        const personalContribution = (chatCount || 0) + (arenaCount || 0);
+
+        setUserStats({
+          personalContribution,
+          teamRank
+        });
+        
+        // --- END OF THE FIX ---
+
+      } else if (user?.role === 'student') {
+        // Handle case where student might not have a team yet
+        setUserTeam(null);
+        setUserStats({ personalContribution: 0, teamRank: 0 });
       }
 
     } catch (error) {
