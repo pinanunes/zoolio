@@ -133,28 +133,25 @@ const arenaBots = isUnlocked ? getArenaBotsForTeam(
     // --- START OF THE FIX: Log Every Arena Interaction ---
     // Wait for all bot responses to come back
     const results = await Promise.all(promises);
-    
+    const finalClassification = results[0]?.classification || 'Não Especificada';
     // Construct the final log entry object from the results
-    const logEntry = {
+     const logEntry = {
         user_id: user.id,
-        question: question,
+        question: question, // Use the state variable
         answer_1: results.find(r => r.key === 'bot1')?.text || '',
         answer_2: results.find(r => r.key === 'bot2')?.text || '',
         answer_3: results.find(r => r.key === 'bot3')?.text || '',
-        disease_classification: results?.classification || 'Não Especificada',
+        disease_classification: finalClassification,
         is_archived: false
-        // We leave voted_best_answer and justification as null for now
     };
 
     try {
-        // Insert the new log entry into the database
-        await supabase.from('comparative_chat_logs').insert(logEntry);
-        console.log("Arena interaction logged successfully.");
-    } catch (logError) {
-        console.error("Error saving comparative chat log:", logError);
-    }
-    // --- END OF THE FIX ---
-  };
+            await supabase.from('comparative_chat_logs').insert(logEntry);
+            console.log("Arena interaction logged successfully.");
+        } catch (logError) {
+            console.error("Error saving comparative chat log:", logError);
+        }
+      };
 
   const selectBestBot = (botNumber) => {
     if (selectedBot) return;

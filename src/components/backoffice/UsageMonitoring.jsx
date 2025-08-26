@@ -22,11 +22,13 @@ const LogCard = ({ log }) => {
             <span>{log.teams?.team_name || 'Sem Equipa'}</span>
             <span>•</span>
             <span>{new Date(log.created_at).toLocaleString('pt-PT')}</span>
-            {!isArena && (
-              <>
-                <span>•</span>
-                <span className="font-medium" style={{ color: bot.color }}>{bot.name}</span>
-              </>
+            <span>•</span>
+            {isArena ? (
+              // --- START: Color change for Arena ---
+              <span className="font-medium" style={{ color: '#6fc7d6ff' }}>Arena de Bots</span>
+              // --- END: Color change for Arena ---
+            ) : (
+              <span className="font-medium" style={{ color: bot.color }}>{bot.name}</span>
             )}
             {log.disease_classification && log.disease_classification !== 'Não Especificada' && (
               <>
@@ -39,11 +41,13 @@ const LogCard = ({ log }) => {
           </div>
         </div>
         {isArena ? (
-          <span className="px-2 py-1 rounded text-xs bg-orange-600 text-white font-medium">
-            Arena (Votou no Bot {log.voted_best_answer || 'N/D'})
-          </span>
+          log.voted_best_answer && (
+            <span className="px-2 py-1 rounded text-xs bg-orange-600 text-white font-medium">
+              Votou no Bot {log.voted_best_answer}
+            </span>
+          )
         ) : (
-          log.feedback && (
+          log.feedback !== null && log.feedback !== undefined && (
             <span className={`px-2 py-1 rounded text-xs ${
               log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
             }`}>
@@ -83,8 +87,7 @@ const UsageMonitoring = () => {
     todayChats: 0,
     activeTeams: 0
   });
-  const [chatLogs, setChatLogs] = useState([]);
-  const [comparativeLogs, setComparativeLogs] = useState([]);
+  const [allLogs, setAllLogs] = useState([]); // Single state for all logs
   const [filters, setFilters] = useState({
     team: '',
     disease: '',
@@ -94,19 +97,31 @@ const UsageMonitoring = () => {
   const [teams, setTeams] = useState([]);
   const [diseases, setDiseases] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false); // For pagination button state
   
-  const allLogs = [...chatLogs, ...comparativeLogs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  // --- START: Pagination State ---
+  const [page, setPage] = useState(0);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  const LOGS_PER_PAGE = 10;
+  // --- END: Pagination State ---
 
   useEffect(() => {
-    loadDataWithFilters();
+    // Reset page and reload data when filters change
+    setPage(0);
+    loadData(true); // true = reset data array
   }, [filters]);
 
-  const loadDataWithFilters = async () => {
-    try {
-      setLoading(true);
-      
-      const today = new Date().toISOString().split('T')[0];
+  useEffect(() => {
+    // Load more data when page number increases, but only if it's not the initial load (page 0)
+    if (page > 0) {
+      loadLogs(false); // false = append data
+    }
+  }, [page]);
 
+  const loadData = async (resetData = false) => {
+    setLoading(true);
+    try {
+      // Fetch stats and filter data in parallel
       const [
         { count: totalChats },
         { count: totalComparativeChats },
@@ -117,27 +132,46 @@ const UsageMonitoring = () => {
       ] = await Promise.all([
         supabase.from('chat_logs').select('*', { count: 'exact', head: true }),
         supabase.from('comparative_chat_logs').select('*', { count: 'exact', head: true }),
-        supabase.from('chat_logs').select('*', { count: 'exact', head: true }).gte('created_at', today),
+        supabase.from('chat_logs').select('*', { count: 'exact', head: true }).gte('created_at', new Date().toISOString().split('T')[0]),
         supabase.from('teams').select('id, team_name').order('team_name'),
         supabase.rpc('get_unique_disease_classifications'),
         supabase.from('chat_logs').select('team_id').not('team_id', 'is', null)
       ]);
 
       const uniqueTeams = new Set(activeTeamsData?.map(log => log.team_id) || []);
-
       setStats({
         totalChats: totalChats || 0,
         totalComparativeChats: totalComparativeChats || 0,
         todayChats: todayChats || 0,
         activeTeams: uniqueTeams.size
       });
-
       setTeams(teamsData || []);
       setDiseases(diseaseClassificationsData || []);
-      
-      let chatQuery = supabase.from('chat_logs').select(`*, profiles(full_name), teams(team_name)`).order('created_at', { ascending: false });
-      let comparativeQuery = supabase.from('comparative_chat_logs').select(`*, profiles(full_name)`).order('created_at', { ascending: false });
+    } catch (error) {
+      console.error('Error loading static data:', error);
+    } finally {
+      // After loading static data, load the first page of logs
+      await loadLogs(resetData);
+      setLoading(false);
+    }
+  };
 
+  const loadLogs = async (resetData = false) => {
+    if (resetData) {
+        setAllLogs([]); // Clear previous logs when filters change
+    }
+    setLoadingMore(true);
+
+    try {
+      // Calculate range for pagination
+      const from = resetData ? 0 : page * LOGS_PER_PAGE;
+      const to = from + LOGS_PER_PAGE - 1;
+
+      // --- Query definitions ---
+      let chatQuery = supabase.from('chat_logs').select(`*, profiles(full_name), teams(team_name)`);
+      let comparativeQuery = supabase.from('comparative_chat_logs').select(`*, profiles!user_id(full_name)`);
+
+      // Apply filters
       if (filters.team) {
         chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
       }
@@ -156,18 +190,29 @@ const UsageMonitoring = () => {
         comparativeQuery = comparativeQuery.lt('created_at', endDate.toISOString());
       }
 
+      // Fetch paged data
       const [{ data: chatData }, { data: comparativeData }] = await Promise.all([
-        chatQuery.limit(50),
-        comparativeQuery.limit(50)
+        chatQuery.order('created_at', { ascending: false }).range(from, to),
+        comparativeQuery.order('created_at', { ascending: false }).range(from, to)
       ]);
 
-      setChatLogs(chatData || []);
-      setComparativeLogs(comparativeData || []);
+      const newLogs = [...(chatData || []), ...(comparativeData || [])];
+      newLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      // Update state
+      if (resetData) {
+        setAllLogs(newLogs);
+      } else {
+        setAllLogs(prevLogs => [...prevLogs, ...newLogs]);
+      }
+      
+      // Check if there's potentially more data to load
+      setHasMoreData(newLogs.length >= LOGS_PER_PAGE); // Simple check: if we received a full page, assume there might be more
 
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading logs:', error);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -175,7 +220,7 @@ const UsageMonitoring = () => {
     setFilters({ team: '', disease: '', dateFrom: '', dateTo: '' });
   };
 
-  if (loading) {
+  if (loading && page === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex space-x-1">
@@ -191,7 +236,6 @@ const UsageMonitoring = () => {
     <div>
       <h1 className="text-3xl font-bold text-white mb-6">Monitorização de Utilização</h1>
       
-      {/* --- Restored Stats Cards --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Total de Chats</h3>
@@ -245,17 +289,38 @@ const UsageMonitoring = () => {
         </div>
       </div>
 
-      <h3 className="text-xl font-bold text-white mb-4">Registos Recentes</h3>
+            <h3 className="text-xl font-bold text-white mb-4">Registos Recentes</h3>
       <div className="space-y-4">
         {allLogs.length > 0 ? (
           allLogs.map((log) => (
             <LogCard key={`${log.id}-${!log.hasOwnProperty('answer')}`} log={log} />
           ))
         ) : (
-          <p className="text-gray-400 text-center py-8">Nenhum registo encontrado.</p>
+          !loading && <p className="text-gray-400 text-center py-8">Nenhum registo encontrado.</p>
         )}
       </div>
+
+      {/* --- START: Pagination Controls --- */}
+      <div className="mt-8 flex justify-center space-x-4">
+        <button
+          onClick={() => setPage(p => Math.max(0, p - 1))}
+          disabled={page === 0 || loadingMore}
+          className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 disabled:opacity-50"
+        >
+          Anterior
+        </button>
+        <span className="text-white flex items-center">Página {page + 1}</span>
+        <button
+          onClick={() => setPage(p => p + 1)}
+          disabled={!hasMoreData || loadingMore}
+          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+        >
+          {loadingMore ? 'A carregar...' : 'Seguinte'}
+        </button>
+      </div>
+      {/* --- END: Pagination Controls --- */}
     </div>
+    
   );
 };
 
