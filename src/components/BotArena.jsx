@@ -39,16 +39,45 @@ const BotArena = () => {
     const sendToAllBots = async () => {
     if (!question.trim() || !isUnlocked || arenaBots.length === 0) return;
 
-    // Reset responses and set loading states
     setResponses({
       bot1: { text: '', loading: true, responseTime: null },
       bot2: { text: '', loading: true, responseTime: null },
       bot3: { text: '', loading: true, responseTime: null }
     });
     setSelectedBot(null);
-    setQuestionClassification(null); // Reset classification on new question
+    setQuestionClassification(null);
 
-    // Send to all bots simultaneously
+    const parseBotResponse = (rawData) => {
+      let classification = 'Não Especificada';
+      let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
+
+      try {
+        const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+
+        if (n8nOutput && typeof n8nOutput.output === 'string') {
+          let jsonString = n8nOutput.output;
+          
+          if (jsonString.startsWith('```json')) {
+            jsonString = jsonString.substring(7, jsonString.length - 3).trim();
+          }
+
+          try {
+            const innerData = JSON.parse(jsonString);
+            messageContent = innerData.output || JSON.stringify(innerData);
+            classification = innerData.disease_classification || 'Não Especificada';
+          } catch (e) {
+            messageContent = n8nOutput.output;
+          }
+        } else if (n8nOutput) {
+          messageContent = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
+        }
+      } catch (error) {
+        console.error("Error parsing bot response:", error);
+      }
+
+      return { messageContent, classification };
+    };
+
     const promises = arenaBots.map(async (bot, index) => {
       const botKey = `bot${index + 1}`;
       const botStartTime = Date.now();
@@ -56,9 +85,7 @@ const BotArena = () => {
       try {
         const response = await fetch(bot.endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             question: question,
             user: {
@@ -71,63 +98,62 @@ const BotArena = () => {
           }),
         });
 
-        if (!response.ok) {
-          throw new Error(`Failed to get response from ${bot.name}`);
-        }
+        if (!response.ok) throw new Error(`Failed to get response from ${bot.name}`);
 
         const rawData = await response.json();
         const responseTime = (Date.now() - botStartTime) / 1000;
         
-        // --- START OF THE DEFINITIVE FIX: Markdown-Aware Double JSON Parsing for Arena ---
-        let botResponse = 'Desculpe, ocorreu um erro ao processar a resposta.';
-        let classification = 'Não Especificada';
-        
-        const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+        const { messageContent, classification } = parseBotResponse(rawData);
 
-        if (n8nOutput && typeof n8nOutput.output === 'string') {
-          let jsonString = n8nOutput.output;
-          
-          // Check for and remove Markdown code fences (```json ... ```)
-          if (jsonString.startsWith('```json')) {
-            jsonString = jsonString.substring(7, jsonString.length - 3).trim();
-          }
-
-          try {
-            // Attempt to parse the cleaned inner JSON string
-            const innerData = JSON.parse(jsonString);
-            botResponse = innerData.output || JSON.stringify(innerData);
-            classification = innerData.disease_classification || 'Não Especificada';
-          } catch (e) {
-            // If parsing still fails, it's just a regular string. Use it directly.
-            botResponse = n8nOutput.output;
-          }
-        } else if (n8nOutput) {
-          // Fallback for other possible structures or old formats
-          botResponse = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
-        }
-
-        // Save the classification from the first bot's response
         if (index === 0) {
           setQuestionClassification(classification);
         }
-        // --- END OF THE DEFINITIVE FIX ---
-
+        
+        // This part is an async update within the map, so we return the final text
+        // to be used in the Promise.all resolution.
         setResponses(prev => ({
           ...prev,
-          [botKey]: { text: botResponse, loading: false, responseTime }
+          [botKey]: { text: messageContent, loading: false, responseTime }
         }));
+
+        return { key: botKey, text: messageContent, classification: classification };
 
       } catch (error) {
         console.error(`Error with ${bot.name}:`, error);
         const responseTime = (Date.now() - botStartTime) / 1000;
+        const errorText = 'Erro ao obter resposta deste bot.';
         setResponses(prev => ({
           ...prev,
-          [botKey]: { text: 'Erro ao obter resposta deste bot.', loading: false, isError: true, responseTime }
+          [botKey]: { text: errorText, loading: false, isError: true, responseTime }
         }));
+        return { key: botKey, text: errorText, classification: 'Não Especificada' };
       }
     });
 
-    await Promise.all(promises);
+    // --- START OF THE FIX: Log Every Arena Interaction ---
+    // Wait for all bot responses to come back
+    const results = await Promise.all(promises);
+    
+    // Construct the final log entry object from the results
+    const logEntry = {
+        user_id: user.id,
+        question: question,
+        answer_1: results.find(r => r.key === 'bot1')?.text || '',
+        answer_2: results.find(r => r.key === 'bot2')?.text || '',
+        answer_3: results.find(r => r.key === 'bot3')?.text || '',
+        disease_classification: results?.classification || 'Não Especificada',
+        is_archived: false
+        // We leave voted_best_answer and justification as null for now
+    };
+
+    try {
+        // Insert the new log entry into the database
+        await supabase.from('comparative_chat_logs').insert(logEntry);
+        console.log("Arena interaction logged successfully.");
+    } catch (logError) {
+        console.error("Error saving comparative chat log:", logError);
+    }
+    // --- END OF THE FIX ---
   };
 
   const selectBestBot = (botNumber) => {

@@ -25,17 +25,33 @@ const AdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return null; // Or a minimal spinner
+    return (
+      <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#1e293b' }}>
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center shadow-lg animate-pulse" style={{ background: 'linear-gradient(135deg, #4ade80, #16a34a)' }}>
+            <span className="text-white font-bold text-2xl">Z</span>
+          </div>
+          <p className="text-white">A carregar...</p>
+        </div>
+      </div>
+    );
   }
   
   if (!user) {
     return <Navigate to="/login" />;
   }
   
-  if (user.role !== 'professor' && user.role !== 'admin') {
+  // THE FIX IS HERE:
+  // We now check for the user's role AND their approval status.
+  const isAdmin = user.role === 'admin';
+  const isApprovedProfessor = user.role === 'professor' && user.isApproved === true;
+
+  if (!isAdmin && !isApprovedProfessor) {
+    // If they are not an admin OR an approved professor, send them to the front office.
     return <Navigate to="/" />;
   }
   
+  // If the checks pass, render the backoffice.
   return children;
 };
 

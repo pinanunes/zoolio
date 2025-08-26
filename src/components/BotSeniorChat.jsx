@@ -19,11 +19,7 @@ const BotSeniorChat = () => {
   const [diseaseStatus, setDiseaseStatus] = useState([]);
   const [loadingDiseases, setLoadingDiseases] = useState(true);
   const [lastClassification, setLastClassification] = useState(null);
-
-  // --- START OF FIX 1: Add state for our new Team -> Disease map ---
   const [teamDiseaseMap, setTeamDiseaseMap] = useState(new Map());
-  // --- END OF FIX 1 ---
-
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
 
@@ -31,33 +27,17 @@ const BotSeniorChat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // --- START OF FIX 2: Corrected getDiseaseOutline function ---
   const getDiseaseOutline = (diseaseId) => {
     if (user?.role !== 'student' || !user.team) return 'border-transparent';
-
     const { team } = user;
-
-    // 1. Check for own assigned disease (Green) - This was already correct.
-    if (diseaseId === team.assignedDiseaseId) {
-      return 'border-green-500';
-    }
-
-    // 2. Check for Blue Team's disease using the map
+    if (diseaseId === team.assignedDiseaseId) return 'border-green-500';
     const blueTeamDiseaseId = teamDiseaseMap.get(team.blueTeamReviewTargetId);
-    if (diseaseId === blueTeamDiseaseId) {
-      return 'border-blue-500';
-    }
-
-    // 3. Check for Red Teams' diseases using the map
+    if (diseaseId === blueTeamDiseaseId) return 'border-blue-500';
     const redTeam1DiseaseId = teamDiseaseMap.get(team.redTeam1TargetId);
     const redTeam2DiseaseId = teamDiseaseMap.get(team.redTeam2TargetId);
-    if (diseaseId === redTeam1DiseaseId || diseaseId === redTeam2DiseaseId) {
-      return 'border-red-500';
-    }
-
+    if (diseaseId === redTeam1DiseaseId || diseaseId === redTeam2DiseaseId) return 'border-red-500';
     return 'border-transparent';
   };
-  // --- END OF FIX 2 ---
 
   useEffect(() => {
     scrollToBottom();
@@ -70,39 +50,23 @@ const BotSeniorChat = () => {
   const loadDiseaseStatus = async () => {
     try {
       setLoadingDiseases(true);
-      
       const { data, error } = await supabase
         .from('diseases')
-        .select(`
-          id,
-          name,
-          teams!teams_assigned_disease_id_fkey (
-            id,
-            team_name,
-            has_submitted_sheet,
-            has_submitted_review
-          )
-        `)
+        .select(`id, name, teams!teams_assigned_disease_id_fkey (id, team_name, has_submitted_sheet, has_submitted_review)`)
         .order('name');
-
       if (error) throw error;
       
-      // --- START OF FIX 3: Build the Team -> Disease Map ---
       const newTeamDiseaseMap = new Map();
       data.forEach(disease => {
         if (disease.teams && disease.teams.length > 0) {
-          // Assuming one team per disease
           newTeamDiseaseMap.set(disease.teams[0].id, disease.id);
         }
       });
       setTeamDiseaseMap(newTeamDiseaseMap);
-      // --- END OF FIX 3 ---
 
       const processedDiseases = data.map(disease => {
         const team = disease.teams[0];
-        let status = 'Não Atribuída';
-        let statusColor = '#6B7280';
-        
+        let status = 'Não Atribuída', statusColor = '#6B7280';
         if (team) {
           if (team.has_submitted_review) {
             status = 'Versão Revista';
@@ -115,45 +79,29 @@ const BotSeniorChat = () => {
             statusColor = '#EF4444';
           }
         }
-
-        return {
-          id: disease.id,
-          name: disease.name,
-          status,
-          statusColor,
-          teamName: team?.team_name || 'Nenhuma'
-        };
+        return { id: disease.id, name: disease.name, status, statusColor, teamName: team?.team_name || 'Nenhuma' };
       });
 
-      // Your existing sorting logic is excellent and does not need to change.
       if (user?.role === 'student' && user?.team) {
         const { team } = user;
-        
         processedDiseases.sort((a, b) => {
           const getPriority = (diseaseId) => {
             const blueTeamDiseaseId = newTeamDiseaseMap.get(team.blueTeamReviewTargetId);
             const redTeam1DiseaseId = newTeamDiseaseMap.get(team.redTeam1TargetId);
             const redTeam2DiseaseId = newTeamDiseaseMap.get(team.redTeam2TargetId);
-
             if (diseaseId === team.assignedDiseaseId) return 1;
             if (diseaseId === blueTeamDiseaseId) return 2;
             if (diseaseId === redTeam1DiseaseId || diseaseId === redTeam2DiseaseId) return 3;
             return 4;
           };
-          
           const priorityA = getPriority(a.id);
           const priorityB = getPriority(b.id);
-          
-          if (priorityA !== priorityB) {
-            return priorityA - priorityB;
-          }
-          
+          if (priorityA !== priorityB) return priorityA - priorityB;
           return a.name.localeCompare(b.name, 'pt-PT');
         });
       } else {
         processedDiseases.sort((a, b) => a.name.localeCompare(b.name, 'pt-PT'));
       }
-
       setDiseaseStatus(processedDiseases);
     } catch (error) {
       console.error('Error loading disease status:', error);
@@ -162,30 +110,18 @@ const BotSeniorChat = () => {
     }
   };
   
-  // No other functions below this point need to be changed.
-  // ... (handleSubmit, handleFeedback, saveFeedback, etc. all remain the same) ...
-
-      const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: inputValue.trim(),
-      timestamp: new Date().toISOString()
-    };
-
+    const userMessage = { id: Date.now(), type: 'user', content: inputValue.trim(), timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
     setShowTimeout(false);
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
-
     const timeoutId = setTimeout(() => setShowTimeout(true), 10000);
     const startTime = Date.now();
 
@@ -195,89 +131,91 @@ const BotSeniorChat = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMessage.content,
-          user: {
-            id: user.id,
-            email: user.email,
-            full_name: user.name,
-            role: user.role,
-            team_id: user.teamId
-          }
+          user: { id: user.id, email: user.email, full_name: user.name, role: user.role, team_id: user.teamId }
         }),
         signal: abortControllerRef.current.signal
       });
 
       clearTimeout(timeoutId);
       setShowTimeout(false);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
       const rawData = await response.json();
-      const endTime = Date.now();
-      const responseTime = (endTime - startTime) / 1000;
+      const responseTime = (Date.now() - startTime) / 1000;
 
-      // --- START OF THE NEW LOGIC ---
       let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
-      let classification = 'Não Especificada'; // Default classification
-      
-      const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+      let classification = 'Não Especificada';
 
-      if (n8nOutput && typeof n8nOutput.output === 'string') {
-        try {
-          const innerData = JSON.parse(n8nOutput.output);
-          messageContent = innerData.output || JSON.stringify(innerData);
-          // Extract the classification from the inner JSON
-          classification = innerData.disease_classification || 'Não Especificada';
-        } catch (e) {
-          messageContent = n8nOutput.output;
+      const parseResponse = (data) => {
+        let currentData = data;
+        if (Array.isArray(currentData)) { currentData = currentData[0]; }
+        if (currentData && typeof currentData.output === 'string') {
+          let jsonString = currentData.output;
+          if (jsonString.startsWith('```json')) {
+            jsonString = jsonString.substring(7, jsonString.length - 3).trim();
+          }
+          try {
+            const innerData = JSON.parse(jsonString);
+            return {
+              messageContent: innerData.output || JSON.stringify(innerData),
+              classification: innerData.disease_classification || 'Não Especificada'
+            };
+          } catch (e) {
+            return { messageContent: jsonString, classification: 'Não Especificada' };
+          }
         }
-      } else if (n8nOutput) {
-        messageContent = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
-      }
-      
-      // Save the classification to the component's state to be used later
-      setLastClassification(classification);
-      // --- END OF THE NEW LOGIC ---
-
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: messageContent,
-        timestamp: new Date().toISOString(),
-        originalQuestion: userMessage.content,
-        responseTime: responseTime,
-        botId: BOTS.bot_senior.id
+        return {
+          messageContent: currentData.output || currentData.answer || currentData.text || JSON.stringify(currentData),
+          classification: currentData.disease_classification || 'Não Especificada'
+        };
       };
 
+      const result = parseResponse(rawData);
+      messageContent = result.messageContent;
+      classification = result.classification;
+      
+      setLastClassification(classification);
+
+      const botMessage = {
+        id: Date.now() + 1, type: 'bot', content: messageContent, timestamp: new Date().toISOString(),
+        originalQuestion: userMessage.content, responseTime, botId: BOTS.bot_senior.id
+      };
       setMessages(prev => [...prev, botMessage]);
+      
+      // --- START OF THE FIX: Log every interaction ---
+      try {
+        await supabase.from('chat_logs').insert({
+          user_id: user.id,
+          team_id: user.teamId,
+          question: botMessage.originalQuestion,
+          answer: botMessage.content,
+          bot_id: botMessage.botId,
+          is_archived: false,
+          disease_classification: classification
+          // We leave 'feedback' as null since none was given yet
+        });
+      } catch (logError) {
+        console.error("Error saving chat log:", logError);
+      }
+      // --- END OF THE FIX ---
 
     } catch (error) {
       clearTimeout(timeoutId);
       setShowTimeout(false);
-      
-      if (error.name === 'AbortError') {
-        console.log('Request was aborted');
-        return;
-      }
-
+      if (error.name === 'AbortError') return;
       console.error('Error calling webhook:', error);
-      
       const errorMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: 'Desculpe, ocorreu um erro ao processar a sua pergunta. Tente novamente.',
-        timestamp: new Date().toISOString(),
-        originalQuestion: userMessage.content,
-        botId: BOTS.bot_senior.id
+        id: Date.now() + 1, type: 'bot', content: 'Desculpe, ocorreu um erro ao processar a sua pergunta. Tente novamente.',
+        timestamp: new Date().toISOString(), originalQuestion: userMessage.content, botId: BOTS.bot_senior.id
       };
-
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
   };
+
+  // --- START: RESTORED MISSING FUNCTIONS ---
   const handleFeedback = (feedbackData) => {
     setCurrentFeedback(feedbackData);
     if (feedbackData.type === 'positive') {
@@ -287,17 +225,14 @@ const BotSeniorChat = () => {
     }
   };
 
-      const saveFeedback = async (feedback, feedbackData = '') => {
+  const saveFeedback = async (feedback, feedbackData = '') => {
     try {
-      // Use the new quota system
       const quotaResult = await updateFeedbackQuota('bot_senior');
-
       if (!quotaResult.success) {
         alert(quotaResult.message);
         return;
       }
 
-      // Prepare the insert data, now including the disease_classification
       const insertData = {
         user_id: user.id,
         team_id: user.teamId,
@@ -305,10 +240,9 @@ const BotSeniorChat = () => {
         answer: feedback.answer,
         feedback: feedback.type === 'positive' ? 1 : -1,
         bot_id: 'bot_senior',
-        disease_classification: lastClassification // Add the saved classification
+        disease_classification: lastClassification
       };
 
-      // If it's positive feedback with structured data, add the details
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {
         insertData.positive_feedback_details = {
           options: feedbackData.feedback.options,
@@ -316,14 +250,9 @@ const BotSeniorChat = () => {
         };
       }
 
-      const { error } = await supabase
-        .from('chat_logs')
-        .insert(insertData);
-
+      const { error } = await supabase.from('chat_logs').insert(insertData);
       if (error) throw error;
-
       console.log('Feedback saved successfully with classification:', lastClassification);
-
     } catch (error) {
       console.error('Error saving feedback:', error);
       alert('Erro ao guardar feedback. Tente novamente.');
@@ -349,7 +278,6 @@ const BotSeniorChat = () => {
       setShowTimeout(false);
     }
   };
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}

@@ -354,7 +354,7 @@ const FeedbackValidation = () => {
           <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
             <h2 className="text-lg font-bold text-white mb-2">Instruções</h2>
             <p className="text-gray-300">
-              Revise o feedback dado pelos estudantes nas respostas do chat. Adicione comentários e atribua pontos de gamificação para bom feedback.
+              Faça a revisão do feedback dado pelos estudantes nas respostas do chat. Adicione comentários e atribua pontos de gamificação para bom feedback.
             </p>
           </div>
 

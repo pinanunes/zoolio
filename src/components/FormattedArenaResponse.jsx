@@ -6,18 +6,15 @@ const FormattedArenaResponse = ({ text, responseTime, messageId }) => {
   const processCitations = (text) => {
     if (!text) return { processedText: '', citations: [] };
 
-    // Configure marked options for better rendering
     marked.setOptions({
-      breaks: true, // Convert line breaks to <br>
-      gfm: true, // GitHub Flavored Markdown
+      breaks: true,
+      gfm: true,
     });
 
     const citations = [];
-    const citationMap = new Map(); // Track unique citations and their numbers
+    const citationMap = new Map();
     let citationCounter = 1;
     
-    // 1. First, find and replace SINGLE bracket [[...]] citation blocks
-    //    This is the only line that was changed.
     let tempText = text.replace(/\[([^\]]+)\]/g, (match, rawCitationText) => {
       let citationNumber;
       let citationId;
@@ -30,14 +27,16 @@ const FormattedArenaResponse = ({ text, responseTime, messageId }) => {
         citationId = `arena${messageId}-ref${citationNumber}`;
         citationMap.set(rawCitationText, citationNumber);
         
-        // 2. Process the individual citation string with Marked
-        let citationHtml;
-        try {
-            citationHtml = marked.parseInline(rawCitationText);
-        } catch (e) {
-            console.error("Error parsing citation:", e);
-            citationHtml = rawCitationText; // fallback to raw text
-        }
+        // First, process the markdown within the citation
+        let citationHtml = marked.parseInline(rawCitationText.trim());
+
+        // --- START OF THE FIX: Make DOI links green ---
+        // After creating the link, find the <a> tag and add a style to it.
+        citationHtml = citationHtml.replace(
+          /<a href/g, 
+          '<a style="color: #4ade80; text-decoration: underline;" href'
+        );
+        // --- END OF THE FIX ---
 
         citations.push({
           id: citationId,
@@ -50,14 +49,7 @@ const FormattedArenaResponse = ({ text, responseTime, messageId }) => {
       return `<sup><a href="#${citationId}" class="citation-link" style="color: #4ade80; text-decoration: none; font-weight: 500;">${citationNumber}</a></sup>`;
     });
 
-    // 3. After citations are extracted, process the main body text
-    let processedText;
-    try {
-        processedText = marked(tempText);
-    } catch(e) {
-        console.error("Error parsing main text:", e);
-        processedText = tempText; // fallback
-    }
+    let processedText = marked(tempText);
 
     citations.sort((a, b) => a.number - b.number);
 

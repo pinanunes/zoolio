@@ -1,6 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import NewYearReset from './NewYearReset';
+
+// A new, reusable component for the clickable table headers
+const SortableHeader = ({ children, column, sortConfig, onSort }) => {
+  const isSorted = sortConfig.key === column;
+  // Use a neutral icon when not sorted for a cleaner look
+  const directionIcon = isSorted ? (sortConfig.direction === 'ascending' ? ' ▲' : ' ▼') : ' ↕';
+
+  return (
+    <div 
+      className="font-bold text-white cursor-pointer select-none flex items-center"
+      onClick={() => onSort(column)}
+    >
+      {children}<span className="ml-1 opacity-60">{directionIcon}</span>
+    </div>
+  );
+};
 
 const StudentAnalytics = () => {
   const [students, setStudents] = useState([]);
@@ -14,6 +30,14 @@ const StudentAnalytics = () => {
     approvedFeedbacks: 0,
     averageScore: 0
   });
+
+  const [filters, setFilters] = useState({
+    full_name: '',
+    student_number: '',
+    team_name: '',
+  });
+
+  const [sortConfig, setSortConfig] = useState({ key: 'full_name', direction: 'ascending' });
 
   useEffect(() => {
     loadStudentAnalytics();
@@ -142,6 +166,49 @@ const StudentAnalytics = () => {
     link.click();
     document.body.removeChild(link);
   };
+  const filteredAndSortedStudents = useMemo(() => {
+    let sortableStudents = [...students];
+
+    // Apply filters
+    sortableStudents = sortableStudents.filter(student => {
+      return Object.keys(filters).every(key => {
+        const filterValue = filters[key].toLowerCase();
+        if (!filterValue) return true;
+        // Ensure student[key] is a string before calling .toLowerCase()
+        return student[key]?.toString().toLowerCase().includes(filterValue);
+      });
+    });
+
+    // Apply sorting
+    if (sortConfig.key !== null) {
+      sortableStudents.sort((a, b) => {
+        // Handle null or undefined values by treating them as empty strings
+        const aVal = a[sortConfig.key] || '';
+        const bVal = b[sortConfig.key] || '';
+        if (aVal < bVal) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (aVal > bVal) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+
+    return sortableStudents;
+  }, [students, filters, sortConfig]);
+
+  const handleSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
 
   if (loading) {
     return (
@@ -218,20 +285,27 @@ const StudentAnalytics = () => {
           <div className="min-w-full">
             {/* Header */}
             <div className="grid grid-cols-10 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
-              <div className="font-bold text-white">NOME</div>
-              <div className="font-bold text-white">Nº ESTUDANTE</div>
-              <div className="font-bold text-white">GRUPO</div>
-              <div className="font-bold text-white">DOENÇA ATRIBUÍDA</div>
-              <div className="font-bold text-white">RED TEAM 1</div>
-              <div className="font-bold text-white">RED TEAM 2</div>
-              <div className="font-bold text-white">FEEDBACKS</div>
-              <div className="font-bold text-white">APROVADOS</div>
-              <div className="font-bold text-white">PONTOS</div>
-              <div className="font-bold text-white">MÉDIA</div>
+              <SortableHeader column="full_name" sortConfig={sortConfig} onSort={handleSort}>NOME</SortableHeader>
+              <SortableHeader column="student_number" sortConfig={sortConfig} onSort={handleSort}>Nº ESTUDANTE</SortableHeader>
+              <SortableHeader column="team_name" sortConfig={sortConfig} onSort={handleSort}>GRUPO</SortableHeader>
+              <SortableHeader column="assigned_disease_name" sortConfig={sortConfig} onSort={handleSort}>DOENÇA ATRIBUÍDA</SortableHeader>
+              <SortableHeader column="red_team_1_disease" sortConfig={sortConfig} onSort={handleSort}>RED TEAM 1</SortableHeader>
+              <SortableHeader column="red_team_2_disease" sortConfig={sortConfig} onSort={handleSort}>RED TEAM 2</SortableHeader>
+              <SortableHeader column="total_feedbacks" sortConfig={sortConfig} onSort={handleSort}>FEEDBACKS</SortableHeader>
+              <SortableHeader column="approved_feedbacks" sortConfig={sortConfig} onSort={handleSort}>APROVADOS</SortableHeader>
+              <SortableHeader column="total_points" sortConfig={sortConfig} onSort={handleSort}>PONTOS</SortableHeader>
+              <SortableHeader column="average_points_per_feedback" sortConfig={sortConfig} onSort={handleSort}>MÉDIA</SortableHeader>
             </div>
 
+            {/* Filter Inputs */}
+            <div className="grid grid-cols-10 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
+              <input type="text" placeholder="Filtrar..." value={filters.full_name} onChange={e => handleFilterChange('full_name', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
+              <input type="text" placeholder="Filtrar..." value={filters.student_number} onChange={e => handleFilterChange('student_number', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
+              <input type="text" placeholder="Filtrar..." value={filters.team_name} onChange={e => handleFilterChange('team_name', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
+              <div className="col-span-7"></div> {/* Empty cells for spacing */}
+            </div>
             {/* Student Rows */}
-            {students.map((student) => (
+            {filteredAndSortedStudents.map((student) => (
               <div key={student.student_id} className="grid grid-cols-10 gap-4 p-4 border-b hover:bg-gray-600 transition-colors" style={{ borderColor: '#475569' }}>
                 {/* Name */}
                 <div className="text-white font-medium">{student.full_name}</div>
@@ -302,9 +376,9 @@ const StudentAnalytics = () => {
             ))}
           </div>
           
-          {students.length === 0 && (
+          {filteredAndSortedStudents.length === 0 && (
             <div className="text-center py-8 text-gray-400">
-              Nenhum estudante encontrado
+              Nenhum estudante encontrado com os filtros atuais.
             </div>
           )}
         </div>

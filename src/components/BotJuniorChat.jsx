@@ -27,25 +27,17 @@ const BotJuniorChat = () => {
     scrollToBottom();
   }, [messages]);
 
-      const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: inputValue.trim(),
-      timestamp: new Date().toISOString()
-    };
-
+    const userMessage = { id: Date.now(), type: 'user', content: inputValue.trim(), timestamp: new Date().toISOString() };
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
     setShowTimeout(false);
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
     const timeoutId = setTimeout(() => setShowTimeout(true), 10000);
@@ -57,91 +49,63 @@ const BotJuniorChat = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: userMessage.content,
-          user: {
-            id: user.id,
-            email: user.email,
-            full_name: user.name,
-            role: user.role,
-            team_id: user.teamId
-          }
+          user: { id: user.id, email: user.email, full_name: user.name, role: user.role, team_id: user.teamId }
         }),
         signal: abortControllerRef.current.signal
       });
 
       clearTimeout(timeoutId);
       setShowTimeout(false);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
       const rawData = await response.json();
-      const endTime = Date.now();
-      const responseTime = (endTime - startTime) / 1000;
+      const responseTime = (Date.now() - startTime) / 1000;
 
-      // --- START OF THE DEFINITIVE FIX: Markdown-Aware Double JSON Parsing ---
+      // --- START: THE NEW, SIMPLIFIED PARSER ---
       let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
-      let classification = 'Não Especificada'; // Default classification
+      let classification = 'Não Especificada';
+
+      // 1. Get the first object from the N8N response array
+      const payload = Array.isArray(rawData) ? rawData[0] : rawData;
       
-      const n8nOutput = Array.isArray(rawData) ? rawData[0] : rawData;
+      // 2. The actual content is inside the 'output' property of the payload
+      const innerData = payload?.output;
 
-      if (n8nOutput && typeof n8nOutput.output === 'string') {
-        let jsonString = n8nOutput.output;
-        
-        // Check for and remove Markdown code fences (```json ... ```)
-        if (jsonString.startsWith('```json')) {
-          jsonString = jsonString.substring(7, jsonString.length - 3).trim();
-        }
-
-        try {
-          // Attempt to parse the cleaned inner JSON string
-          const innerData = JSON.parse(jsonString);
-          messageContent = innerData.output || JSON.stringify(innerData);
-          classification = innerData.disease_classification || 'Não Especificada';
-        } catch (e) {
-          // If parsing still fails, it's just a regular string. Use it directly.
-          messageContent = n8nOutput.output;
-        }
-      } else if (n8nOutput) {
-        messageContent = n8nOutput.output || n8nOutput.answer || n8nOutput.text || JSON.stringify(n8nOutput);
+      if (innerData && typeof innerData === 'object') {
+        // 3. Extract the final data from the inner object
+        messageContent = innerData.output || 'Não foi possível extrair a resposta.';
+        classification = innerData.disease_classification || 'Não Especificada';
       }
-      
-      // Save the classification to the component's state to be used later
+
+      // 4. Save the classification to the component's state
       setLastClassification(classification);
-      // --- END OF THE DEFINITIVE FIX ---
+      // --- END: THE NEW, SIMPLIFIED PARSER ---
 
       const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: messageContent,
-        timestamp: new Date().toISOString(),
-        originalQuestion: userMessage.content,
-        responseTime: responseTime,
-        botId: BOTS.bot_junior.id
+        id: Date.now() + 1, type: 'bot', content: messageContent, timestamp: new Date().toISOString(),
+        originalQuestion: userMessage.content, responseTime, botId: BOTS.bot_junior.id
       };
-
       setMessages(prev => [...prev, botMessage]);
+      
+      // Log every interaction
+      try {
+        await supabase.from('chat_logs').insert({
+          user_id: user.id, team_id: user.teamId,
+          question: botMessage.originalQuestion, answer: botMessage.content,
+          bot_id: botMessage.botId, is_archived: false,
+          disease_classification: classification
+        });
+      } catch (logError) { console.error("Error saving chat log:", logError); }
 
     } catch (error) {
       clearTimeout(timeoutId);
       setShowTimeout(false);
-      
-      if (error.name === 'AbortError') {
-        console.log('Request was aborted');
-        return;
-      }
-
+      if (error.name === 'AbortError') return;
       console.error('Error calling webhook:', error);
-      
       const errorMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: 'Desculpe, ocorreu um erro ao processar a sua pergunta. Tente novamente.',
-        timestamp: new Date().toISOString(),
-        originalQuestion: userMessage.content,
-        botId: BOTS.bot_junior.id
+        id: Date.now() + 1, type: 'bot', content: 'Desculpe, ocorreu um erro ao processar a sua pergunta. Tente novamente.',
+        timestamp: new Date().toISOString(), originalQuestion: userMessage.content, botId: BOTS.bot_junior.id
       };
-
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
@@ -165,7 +129,7 @@ const BotJuniorChat = () => {
     }
   };
 
-  const saveFeedback = async (feedback, feedbackData = '') => {
+    const saveFeedback = async (feedback, feedbackData = '') => {
     try {
       // Use the new quota system
       const quotaResult = await updateFeedbackQuota('bot_junior');
@@ -175,15 +139,18 @@ const BotJuniorChat = () => {
         return;
       }
 
-      // Prepare the insert data
+      // --- START OF THE FIX ---
+      // Prepare the insert data, now including the disease_classification
       const insertData = {
         user_id: user.id,
         team_id: user.teamId,
         question: feedback.question,
         answer: feedback.answer,
         feedback: feedback.type === 'positive' ? 1 : -1,
-        bot_id: 'bot_junior'
+        bot_id: 'bot_junior',
+        disease_classification: lastClassification // Add the saved classification
       };
+      // --- END OF THE FIX ---
 
       // If it's positive feedback with structured data, add the details
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {
@@ -199,7 +166,7 @@ const BotJuniorChat = () => {
 
       if (error) throw error;
 
-      console.log('Feedback saved successfully');
+      console.log('Feedback saved successfully with classification:', lastClassification);
 
     } catch (error) {
       console.error('Error saving feedback:', error);
