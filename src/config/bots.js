@@ -67,8 +67,22 @@ export const getAvailableBotsForTeam = (hasSubmittedSheet, hasSubmittedReview) =
 };
 
 // Helper function to get bots for Bot Arena (phase 3)
-export const getArenaBotsForTeam = (hasSubmittedSheet, hasSubmittedReview) => {
-  if (!hasSubmittedReview) return [];
+export const getArenaBotsForTeam = (hasSubmittedReview, userRole) => {
+  // --- START OF THE FIX ---
+  // If the user is an admin or professor, always grant access.
+  if (userRole === 'admin' || userRole === 'professor') {
+    return [
+      BOTS.bot_senior,
+      BOTS.bot_pubmed,
+      BOTS.bot_llm
+    ];
+  }
+  // --- END OF THE FIX ---
+  
+  // For students, check their progress.
+  if (!hasSubmittedReview) {
+    return [];
+  }
   
   return [
     BOTS.bot_senior,

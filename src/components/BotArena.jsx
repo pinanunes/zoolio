@@ -30,9 +30,9 @@ const BotArena = () => {
 
   const isUnlocked = isProfessorOrAdmin || (teamProgress.hasSubmittedSheet && teamProgress.hasSubmittedReview);
   
-  const arenaBots = isUnlocked ? getArenaBotsForTeam(
-    teamProgress.hasSubmittedSheet,
-    teamProgress.hasSubmittedReview
+const arenaBots = isUnlocked ? getArenaBotsForTeam(
+    teamProgress.hasSubmittedReview,
+    user?.role // Pass the user's role to the function
   ) : [];
 
   // --- START OF FIX 2: Update the sendToAllBots function ---
