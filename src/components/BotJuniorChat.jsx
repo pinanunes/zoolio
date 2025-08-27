@@ -18,6 +18,7 @@ const BotJuniorChat = () => {
   const [showTimeout, setShowTimeout] = useState(false);
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const [lastErrorInfo, setLastErrorInfo] = useState(null);
   const [lastClassification, setLastClassification] = useState(null); // <-- ADD THIS LINE
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -64,7 +65,7 @@ const BotJuniorChat = () => {
       // --- START: THE NEW, SIMPLIFIED PARSER ---
       let messageContent = 'Desculpe, ocorreu um erro ao processar a resposta.';
       let classification = 'Não Especificada';
-
+      let errorInfo = null;   
       // 1. Get the first object from the N8N response array
       const payload = Array.isArray(rawData) ? rawData[0] : rawData;
       
@@ -72,13 +73,14 @@ const BotJuniorChat = () => {
       const innerData = payload?.output;
 
       if (innerData && typeof innerData === 'object') {
-        // 3. Extract the final data from the inner object
         messageContent = innerData.output || 'Não foi possível extrair a resposta.';
         classification = innerData.disease_classification || 'Não Especificada';
-      }
+        errorInfo = innerData.error_info || null; // <-- Extract the error_info object
+      } 
 
       // 4. Save the classification to the component's state
       setLastClassification(classification);
+      setLastErrorInfo(errorInfo); 
       // --- END: THE NEW, SIMPLIFIED PARSER ---
 
       const botMessage = {
@@ -93,7 +95,8 @@ const BotJuniorChat = () => {
           user_id: user.id, team_id: user.teamId,
           question: botMessage.originalQuestion, answer: botMessage.content,
           bot_id: botMessage.botId, is_archived: false,
-          disease_classification: classification
+          disease_classification: classification,
+          error_details: errorInfo
         });
       } catch (logError) { console.error("Error saving chat log:", logError); }
 
@@ -167,6 +170,7 @@ const BotJuniorChat = () => {
 
       const updateData = {
         feedback: feedback.type === 'positive' ? 1 : -1,
+        error_details: lastErrorInfo
       };
 
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {

@@ -664,6 +664,26 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
         // --- END OF THE NEW LOGIC ---
       ) : null}
 
+      {/* --- START: NEW Bot Error Analysis Section --- */}
+      {log.error_details && log.error_details.has_error === true && (
+        <div className="mt-4 p-4 rounded-lg border border-yellow-700" style={{ backgroundColor: '#1e293b' }}>
+          <h4 className="text-white font-medium mb-3">🤖 Análise do Erro (Bot Junior)</h4>
+          <div className="mb-3">
+            <p className="text-gray-300 text-sm mb-1"><strong>Tipo de Erro Introduzido:</strong></p>
+            <p className="text-yellow-300 text-sm font-semibold bg-yellow-900 bg-opacity-50 p-2 rounded">
+              {log.error_details.error_type}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-300 text-sm mb-1"><strong>Descrição do Erro:</strong></p>
+            <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
+              "{log.error_details.error_description}"
+            </p>
+          </div>
+        </div>
+      )}
+      {/* --- END: NEW Bot Error Analysis Section --- */}
+
       {/* Existing Validation */}
       {existingValidation && (
         <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#065f46' }}>

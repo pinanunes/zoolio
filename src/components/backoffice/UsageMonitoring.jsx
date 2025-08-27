@@ -2,11 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BOTS } from '../../config/bots';
 
-// Final LogCard with Expansion and Styling
+// --- START: FINAL LogCard with Error Display ---
 const LogCard = ({ log }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const isArena = !log.hasOwnProperty('answer');
   const bot = BOTS[log.bot_id] || { name: 'Bot Desconhecido', color: '#64748b' };
+  
+  const hasIntentionalError = log.bot_id === 'bot_junior' && log.error_details?.has_error === true;
+  const noIntentionalError = log.bot_id === 'bot_junior' && log.error_details?.has_error === false;
 
   const answerText = isArena 
     ? `Bot 1: ${log.answer_1}\n\nBot 2: ${log.answer_2}\n\nBot 3: ${log.answer_3}`
@@ -24,11 +28,9 @@ const LogCard = ({ log }) => {
             <span>{new Date(log.created_at).toLocaleString('pt-PT')}</span>
             <span>•</span>
             {isArena ? (
-              // --- START: Color change for Arena ---
-              <span className="font-medium" style={{ color: '#6fc7d6ff' }}>Arena de Bots</span>
-              // --- END: Color change for Arena ---
+                <span className="font-medium" style={{ color: '#FF9800' }}>Arena de Bots</span>
             ) : (
-              <span className="font-medium" style={{ color: bot.color }}>{bot.name}</span>
+                <span className="font-medium" style={{ color: bot.color }}>{bot.name}</span>
             )}
             {log.disease_classification && log.disease_classification !== 'Não Especificada' && (
               <>
@@ -40,21 +42,32 @@ const LogCard = ({ log }) => {
             )}
           </div>
         </div>
-        {isArena ? (
-          log.voted_best_answer && (
-            <span className="px-2 py-1 rounded text-xs bg-orange-600 text-white font-medium">
-              Votou no Bot {log.voted_best_answer}
-            </span>
-          )
-        ) : (
-          log.feedback !== null && log.feedback !== undefined && (
-            <span className={`px-2 py-1 rounded text-xs ${
-              log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-            }`}>
-              {log.feedback === 1 ? '👍 Útil' : '👎 Não útil'}
-            </span>
-          )
-        )}
+        <div className="flex items-center space-x-2">
+            {hasIntentionalError && (
+                <span className="px-2 py-1 rounded text-xs bg-yellow-600 text-white font-medium">
+                    ⚠️ Erro Intencional
+                </span>
+            )}
+            {noIntentionalError && (
+                <span className="px-2 py-1 rounded text-xs bg-blue-600 text-white font-medium">
+                    ✓ Sem Erro
+                </span>
+            )}
+            {isArena ? (
+                log.voted_best_answer &&
+                <span className="px-2 py-1 rounded text-xs bg-orange-600 text-white font-medium">
+                    Votou no Bot {log.voted_best_answer}
+                </span>
+            ) : (
+            log.feedback !== null && log.feedback !== undefined && (
+                <span className={`px-2 py-1 rounded text-xs ${
+                log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                }`}>
+                {log.feedback === 1 ? '👍 Útil' : '👎 Não útil'}
+                </span>
+            )
+            )}
+        </div>
       </div>
       <div className="text-gray-300 text-sm space-y-2">
         <p><strong>Pergunta:</strong> {log.question}</p>
@@ -76,9 +89,25 @@ const LogCard = ({ log }) => {
             <p><strong>Justificação:</strong> {log.justification}</p>
         )}
       </div>
+
+      {hasIntentionalError && (
+        <div className="mt-4 pt-3 border-t border-gray-600">
+            <button onClick={() => setShowErrorDetails(!showErrorDetails)} className="text-xs text-yellow-400 hover:underline">
+                {showErrorDetails ? 'Esconder Análise do Erro' : 'Mostrar Análise do Erro'}
+            </button>
+            {showErrorDetails && (
+                <div className="mt-2 p-3 rounded-lg bg-yellow-900 bg-opacity-30">
+                    <p className="text-sm font-semibold text-yellow-300 mb-1">{log.error_details.error_type}</p>
+                    <p className="text-xs text-yellow-200">{log.error_details.error_description}</p>
+                </div>
+            )}
+        </div>
+      )}
     </div>
   );
 };
+// --- END: FINAL LogCard ---
+
 
 const UsageMonitoring = () => {
   const [stats, setStats] = useState({
@@ -87,7 +116,7 @@ const UsageMonitoring = () => {
     todayChats: 0,
     activeTeams: 0
   });
-  const [allLogs, setAllLogs] = useState([]); // Single state for all logs
+  const [allLogs, setAllLogs] = useState([]);
   const [filters, setFilters] = useState({
     team: '',
     disease: '',
@@ -97,84 +126,67 @@ const UsageMonitoring = () => {
   const [teams, setTeams] = useState([]);
   const [diseases, setDiseases] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false); // For pagination button state
-  
-  // --- START: Pagination State ---
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMoreData, setHasMoreData] = useState(true);
-  const LOGS_PER_PAGE = 10;
-  // --- END: Pagination State ---
+  const LOGS_PER_PAGE = 20;
 
   useEffect(() => {
-    // Reset page and reload data when filters change
-    setPage(0);
-    loadData(true); // true = reset data array
+    // This effect now correctly handles the initial load and filter changes
+    loadInitialData();
   }, [filters]);
 
-  useEffect(() => {
-    // Load more data when page number increases, but only if it's not the initial load (page 0)
-    if (page > 0) {
-      loadLogs(false); // false = append data
-    }
-  }, [page]);
-
-  const loadData = async (resetData = false) => {
+  const loadInitialData = async () => {
     setLoading(true);
-    try {
-      // Fetch stats and filter data in parallel
-      const [
-        { count: totalChats },
-        { count: totalComparativeChats },
-        { count: todayChats },
-        { data: teamsData },
-        { data: diseaseClassificationsData },
-        { data: activeTeamsData }
-      ] = await Promise.all([
-        supabase.from('chat_logs').select('*', { count: 'exact', head: true }),
-        supabase.from('comparative_chat_logs').select('*', { count: 'exact', head: true }),
-        supabase.from('chat_logs').select('*', { count: 'exact', head: true }).gte('created_at', new Date().toISOString().split('T')[0]),
-        supabase.from('teams').select('id, team_name').order('team_name'),
-        supabase.rpc('get_unique_disease_classifications'),
-        supabase.from('chat_logs').select('team_id').not('team_id', 'is', null)
-      ]);
-
-      const uniqueTeams = new Set(activeTeamsData?.map(log => log.team_id) || []);
-      setStats({
-        totalChats: totalChats || 0,
-        totalComparativeChats: totalComparativeChats || 0,
-        todayChats: todayChats || 0,
-        activeTeams: uniqueTeams.size
-      });
-      setTeams(teamsData || []);
-      setDiseases(diseaseClassificationsData || []);
-    } catch (error) {
-      console.error('Error loading static data:', error);
-    } finally {
-      // After loading static data, load the first page of logs
-      await loadLogs(resetData);
-      setLoading(false);
-    }
+    setPage(0); // Always reset to page 0 on filter change
+    setAllLogs([]); // Clear old logs
+    await loadData(0, true); // Fetch the first page and static data
+    setLoading(false);
   };
 
-  const loadLogs = async (resetData = false) => {
-    if (resetData) {
-        setAllLogs([]); // Clear previous logs when filters change
-    }
-    setLoadingMore(true);
+  const loadMoreData = async () => {
+    if (loading || loadingMore || !hasMoreData) return;
+    const nextPage = page + 1;
+    await loadData(nextPage, false);
+    setPage(nextPage);
+  };
+
+  const loadData = async (currentPage, isInitialLoad) => {
+    if (!isInitialLoad) setLoadingMore(true);
 
     try {
-      // Calculate range for pagination
-      const from = resetData ? 0 : page * LOGS_PER_PAGE;
+      // Fetch static data (teams, diseases, stats) only on the very first load
+      if (isInitialLoad) {
+        const [
+          { count: totalChats }, { count: totalComparativeChats },
+          { data: teamsData }, { data: diseaseClassificationsData },
+          { count: todayChats }, { data: activeTeamsData }
+        ] = await Promise.all([
+          supabase.from('chat_logs').select('*', { count: 'exact', head: true }),
+          supabase.from('comparative_chat_logs').select('*', { count: 'exact', head: true }),
+          supabase.from('teams').select('id, team_name').order('id', { ascending: true }),
+          supabase.rpc('get_unique_disease_classifications'),
+          supabase.from('chat_logs').select('*', { count: 'exact', head: true }).gte('created_at', new Date().toISOString().split('T')[0]),
+          supabase.from('chat_logs').select('team_id').not('team_id', 'is', null)
+        ]);
+
+        const uniqueTeams = new Set(activeTeamsData?.map(log => log.team_id) || []);
+        setStats({
+            totalChats: totalChats || 0, totalComparativeChats: totalComparativeChats || 0,
+            todayChats: todayChats || 0, activeTeams: uniqueTeams.size
+        });
+        setTeams(teamsData || []);
+        setDiseases(diseaseClassificationsData || []);
+      }
+      
+      const from = currentPage * LOGS_PER_PAGE;
       const to = from + LOGS_PER_PAGE - 1;
 
-      // --- Query definitions ---
-      let chatQuery = supabase.from('chat_logs').select(`*, profiles(full_name), teams(team_name)`);
-      let comparativeQuery = supabase.from('comparative_chat_logs').select(`*, profiles!user_id(full_name)`);
+      let chatQuery = supabase.from('chat_logs').select(`*, profiles(full_name), teams(team_name)`).order('created_at', { ascending: false }).range(from, to);
+      let comparativeQuery = supabase.from('comparative_chat_logs').select(`*, profiles!user_id(full_name)`).order('created_at', { ascending: false }).range(from, to);
 
-      // Apply filters
-      if (filters.team) {
-        chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
-      }
+      // Apply filters to both queries
+      if (filters.team) chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
       if (filters.disease) {
         chatQuery = chatQuery.eq('disease_classification', filters.disease);
         comparativeQuery = comparativeQuery.eq('disease_classification', filters.disease);
@@ -190,29 +202,26 @@ const UsageMonitoring = () => {
         comparativeQuery = comparativeQuery.lt('created_at', endDate.toISOString());
       }
 
-      // Fetch paged data
-      const [{ data: chatData }, { data: comparativeData }] = await Promise.all([
-        chatQuery.order('created_at', { ascending: false }).range(from, to),
-        comparativeQuery.order('created_at', { ascending: false }).range(from, to)
-      ]);
-
+      const [{ data: chatData }, { data: comparativeData }] = await Promise.all([chatQuery, comparativeQuery]);
+      
       const newLogs = [...(chatData || []), ...(comparativeData || [])];
-      newLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      // A more accurate check for "has more data"
+      const totalFetched = (chatData?.length || 0) + (comparativeData?.length || 0);
+      setHasMoreData(totalFetched >= LOGS_PER_PAGE);
 
-      // Update state
-      if (resetData) {
+      newLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      if (isInitialLoad) {
         setAllLogs(newLogs);
       } else {
         setAllLogs(prevLogs => [...prevLogs, ...newLogs]);
       }
-      
-      // Check if there's potentially more data to load
-      setHasMoreData(newLogs.length >= LOGS_PER_PAGE); // Simple check: if we received a full page, assume there might be more
 
     } catch (error) {
-      console.error('Error loading logs:', error);
+      console.error('Error loading data:', error);
     } finally {
-      setLoadingMore(false);
+      if (!isInitialLoad) setLoadingMore(false);
     }
   };
 
@@ -220,22 +229,17 @@ const UsageMonitoring = () => {
     setFilters({ team: '', disease: '', dateFrom: '', dateTo: '' });
   };
 
-  if (loading && page === 0) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="flex space-x-1">
-          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce"></div>
-          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-          <div className="w-3 h-3 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-        </div>
+          {/* ... loading spinner ... */}
       </div>
     );
   }
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-white mb-6">Monitorização de Utilização</h1>
-      
+      <h1 className="text-3xl font-bold text-white mb-6">Monitorização de Utilização</h1>     
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <h3 className="text-lg font-bold text-white mb-2">Total de Chats</h3>
@@ -265,7 +269,6 @@ const UsageMonitoring = () => {
             <option value="">Todas as equipas</option>
             {teams.map(team => (<option key={team.id} value={team.id}>{team.team_name}</option>))}
           </select>
-
           <select value={filters.disease} onChange={(e) => setFilters(prev => ({ ...prev, disease: e.target.value }))}
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
             style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
@@ -273,7 +276,6 @@ const UsageMonitoring = () => {
             <option value="">Todas as doenças</option>
             {diseases.map(d => (<option key={d.classification} value={d.classification}>{d.classification}</option>))}
           </select>
-
           <input type="date" value={filters.dateFrom} onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
             style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
@@ -282,45 +284,35 @@ const UsageMonitoring = () => {
             className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
             style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
           />
-
           <button onClick={clearFilters} className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
             Limpar Filtros
           </button>
         </div>
       </div>
 
-            <h3 className="text-xl font-bold text-white mb-4">Registos Recentes</h3>
+        <h3 className="text-xl font-bold text-white mb-4">Registos Recentes</h3>
       <div className="space-y-4">
         {allLogs.length > 0 ? (
           allLogs.map((log) => (
             <LogCard key={`${log.id}-${!log.hasOwnProperty('answer')}`} log={log} />
           ))
         ) : (
-          !loading && <p className="text-gray-400 text-center py-8">Nenhum registo encontrado.</p>
+          <p className="text-gray-400 text-center py-8">Nenhum registo encontrado.</p>
         )}
       </div>
 
-      {/* --- START: Pagination Controls --- */}
-      <div className="mt-8 flex justify-center space-x-4">
-        <button
-          onClick={() => setPage(p => Math.max(0, p - 1))}
-          disabled={page === 0 || loadingMore}
-          className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 disabled:opacity-50"
-        >
-          Anterior
-        </button>
-        <span className="text-white flex items-center">Página {page + 1}</span>
-        <button
-          onClick={() => setPage(p => p + 1)}
-          disabled={!hasMoreData || loadingMore}
-          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-        >
-          {loadingMore ? 'A carregar...' : 'Seguinte'}
-        </button>
+      <div className="mt-8 flex justify-center">
+        {hasMoreData && (
+          <button
+            onClick={loadMoreData}
+            disabled={loadingMore}
+            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {loadingMore ? 'A carregar...' : 'Carregar Mais'}
+          </button>
+        )}
       </div>
-      {/* --- END: Pagination Controls --- */}
     </div>
-    
   );
 };
 
