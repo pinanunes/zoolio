@@ -14,10 +14,12 @@ const FeedbackValidation = () => {
   const [processing, setProcessing] = useState({});
   const [filters, setFilters] = useState({
     team: '',
+    disease: '',
     hasValidation: 'all', // 'all', 'validated', 'pending'
     keyword: ''
   });
   const [teams, setTeams] = useState([]);
+  const [diseases, setDiseases] = useState([]);
   const [globalStats, setGlobalStats] = useState({
     total: 0,
     validated: 0,
@@ -36,18 +38,16 @@ const FeedbackValidation = () => {
     try {
       setLoading(true);
       
-      // Load teams
-      const { data: teamsData } = await supabase
-        .from('teams')
-        .select('id, team_name')
-        .order('team_name');
+      // Fetch teams and disease classifications in parallel for efficiency
+      const [teamsData, diseaseClassificationsData] = await Promise.all([
+        supabase.from('teams').select('id, team_name').order('id', { ascending: true }),
+        supabase.rpc('get_unique_disease_classifications') // Reuse our efficient function
+      ]);
 
-      setTeams(teamsData || []);
-
+      setTeams(teamsData.data || []);
+      setDiseases(diseaseClassificationsData.data || []); // Set the new state
       
-      // Load global statistics (unfiltered)
       await loadGlobalStats();
-      
       await loadFeedbackLogs();
     } catch (error) {
       console.error('Error loading data:', error);
@@ -124,6 +124,9 @@ const FeedbackValidation = () => {
       // Apply server-side filters
       if (filters.team) {
         chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
+      }
+      if (filters.disease) { // <-- ADD THIS BLOCK
+        chatQuery = chatQuery.eq('disease_classification', filters.disease);
       }
       
       // Note: Validation and keyword filters will be applied client-side for simplicity
@@ -296,6 +299,7 @@ const FeedbackValidation = () => {
   const clearFilters = () => {
     setFilters({
       team: '',
+      disease: '', // <-- ADD THIS LINE
       hasValidation: 'all',
       keyword: ''
     });
@@ -361,7 +365,7 @@ const FeedbackValidation = () => {
       {/* Filters */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h3 className="text-lg font-bold text-white mb-4">Filtros</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <select
             value={filters.team}
             onChange={(e) => setFilters(prev => ({ ...prev, team: e.target.value }))}
@@ -377,6 +381,24 @@ const FeedbackValidation = () => {
               <option key={team.id} value={team.id}>{team.team_name}</option>
             ))}
           </select>
+
+          {/* --- START: NEW DISEASE FILTER --- */}
+          <select
+            value={filters.disease}
+            onChange={(e) => setFilters(prev => ({ ...prev, disease: e.target.value }))}
+            className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+            style={{ 
+              backgroundColor: '#475569', 
+              border: '1px solid #64748b',
+              color: '#ffffff'
+            }}
+          >
+            <option value="">Todas as doenças</option>
+            {diseases.map(d => (
+              <option key={d.classification} value={d.classification}>{d.classification}</option>
+            ))}
+          </select>
+          {/* --- END: NEW DISEASE FILTER --- */}
 
           <select
             value={filters.hasValidation}
@@ -394,13 +416,13 @@ const FeedbackValidation = () => {
           </select>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
             type="text"
             placeholder="Pesquisar por palavra-chave (pergunta ou resposta)..."
             value={filters.keyword}
             onChange={(e) => setFilters(prev => ({ ...prev, keyword: e.target.value }))}
-            className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 md:col-span-2"
             style={{ 
               backgroundColor: '#475569', 
               border: '1px solid #64748b',
@@ -507,51 +529,40 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
 
   return (
     <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
-      {/* Header */}
+            {/* Header */}
       <div className="flex justify-between items-start mb-4">
         <div>
           <p className="text-white font-medium">{log.profiles?.full_name}</p>
-          <p className="text-sm text-gray-400">
-            {log.teams?.team_name} • {new Date(log.created_at).toLocaleString('pt-PT')}
-          </p>
-          {/* Bot Information */}
-          {log.bot_id && (
-            <div className="flex items-center space-x-2 mt-1">
-              <span className="text-xs text-gray-500">Bot:</span>
-              {(() => {
-                const bot = Object.values(BOTS).find(b => b.id === log.bot_id);
-                if (bot) {
-                  return (
-                    <div className="flex items-center space-x-1">
-                      <div 
-                        className="w-4 h-4 rounded-full flex items-center justify-center"
-                        style={{ backgroundColor: bot.color }}
-                      >
-                        <span className="text-white text-xs font-medium">
-                          {bot.name.charAt(0)}
-                        </span>
-                      </div>
-                      <span className="text-xs" style={{ color: bot.color }}>
-                        {bot.name}
-                      </span>
-                    </div>
-                  );
-                }
-                return <span className="text-xs text-gray-500">Bot desconhecido</span>;
-              })()}
-            </div>
-          )}
+          {/* This div now uses flex and wrap for a cleaner, single-line metadata layout */}
+          <div className="text-sm text-gray-400 flex items-center flex-wrap gap-x-2 mt-1">
+            <span>{log.teams?.team_name}</span>
+            <span>•</span>
+            <span>{new Date(log.created_at).toLocaleString('pt-PT')}</span>
+            {log.bot_id && (
+              <>
+                <span>•</span>
+                <span className="font-medium" style={{ color: BOTS[log.bot_id]?.color || '#FFFFFF' }}>
+                  {BOTS[log.bot_id]?.name || 'Bot Desconhecido'}
+                </span>
+              </>
+            )}
+            {/* This is the new disease classification tag */}
+            {log.disease_classification && log.disease_classification !== 'Não Especificada' && (
+              <>
+                <span>•</span>
+                <span className="px-2 py-0.5 text-xs rounded-full text-white font-medium" style={{ backgroundColor: '#A682FF' }}>
+                  {log.disease_classification}
+                </span>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center space-x-2">
-          <span className={`px-2 py-1 rounded text-xs ${
-            log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-          }`}>
+          <span className={`px-2 py-1 rounded text-xs ${ log.feedback === 1 ? 'bg-green-600 text-white' : 'bg-red-600 text-white' }`}>
             {log.feedback === 1 ? '👍 Útil' : '👎 Não útil'}
           </span>
           {existingValidation && existingValidation.is_validated === true && (
-            <span className="px-2 py-1 rounded text-xs bg-blue-600 text-white">
-              Validado
-            </span>
+            <span className="px-2 py-1 rounded text-xs bg-blue-600 text-white">Validado</span>
           )}
         </div>
       </div>
@@ -596,7 +607,7 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
 
       {/* Student's Original Feedback */}
       {log.type === 'arena' ? (
-        // Arena feedback - show justification
+        // Arena feedback - show justification (This part is unchanged)
         <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
           <h4 className="text-white font-medium mb-3">⚔️ Feedback da Arena</h4>
           <div className="mb-3">
@@ -609,56 +620,49 @@ const FeedbackLogCard = ({ log, onValidate, processing }) => {
             </p>
           </div>
         </div>
-      ) : (
-        // Regular chat feedback
-        log.positive_feedback_details && (
-          <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
-            <h4 className="text-white font-medium mb-3">💬 Feedback do Estudante</h4>
-            
-            {/* Selected Options */}
-            {log.positive_feedback_details.options && (
-              <div className="mb-3">
-                <p className="text-gray-300 text-sm mb-2"><strong>Opções selecionadas:</strong></p>
-                <div className="flex flex-wrap gap-2">
-                  {log.positive_feedback_details.options.informacaoCorreta && (
-                    <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">
-                      ✓ Informação correta
-                    </span>
-                  )}
-                  {log.positive_feedback_details.options.informacaoCompleta && (
-                    <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
-                      ✓ Informação completa
-                    </span>
-                  )}
-                  {log.positive_feedback_details.options.aprendiAlgo && (
-                    <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">
-                      ✓ Aprendi algo novo
-                    </span>
-                  )}
-                </div>
+      ) : log.feedback === 1 && log.positive_feedback_details ? (
+        // Positive Feedback Details (This part is unchanged)
+        <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
+          <h4 className="text-white font-medium mb-3">👍 Feedback Positivo do Estudante</h4>
+          {log.positive_feedback_details.options && (
+            <div className="mb-3">
+              <p className="text-gray-300 text-sm mb-2"><strong>Opções selecionadas:</strong></p>
+              <div className="flex flex-wrap gap-2">
+                {log.positive_feedback_details.options.informacaoCorreta && ( <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">✓ Informação correta</span> )}
+                {log.positive_feedback_details.options.informacaoCompleta && ( <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">✓ Informação completa</span> )}
+                {log.positive_feedback_details.options.aprendiAlgo && ( <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">✓ Aprendi algo novo</span> )}
               </div>
-            )}
-            
-            {/* Written Comment */}
-            {log.positive_feedback_details.comment && log.positive_feedback_details.comment.trim() && (
-              <div>
-                <p className="text-gray-300 text-sm mb-1"><strong>Comentário escrito:</strong></p>
-                <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
-                  "{log.positive_feedback_details.comment}"
-                </p>
-              </div>
-            )}
-            
-            {/* No feedback details */}
-            {(!log.positive_feedback_details.comment || !log.positive_feedback_details.comment.trim()) && 
-             (!log.positive_feedback_details.options || Object.values(log.positive_feedback_details.options).every(v => !v)) && (
-              <p className="text-gray-400 text-sm italic">
-                O estudante não forneceu detalhes adicionais sobre o feedback.
-              </p>
-            )}
+            </div>
+          )}
+          {log.positive_feedback_details.comment && log.positive_feedback_details.comment.trim() && (
+            <div>
+              <p className="text-gray-300 text-sm mb-1"><strong>Comentário escrito:</strong></p>
+              <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">"{log.positive_feedback_details.comment}"</p>
+            </div>
+          )}
+        </div>
+      ) : log.feedback === -1 && log.negative_feedback_details ? (
+        // --- START OF THE NEW LOGIC ---
+        // Negative Feedback Details
+        <div className="mb-4 p-4 rounded-lg" style={{ backgroundColor: '#1e293b' }}>
+          <h4 className="text-white font-medium mb-3">👎 Feedback Negativo do Estudante</h4>
+          <div className="mb-3">
+            <p className="text-gray-300 text-sm mb-1"><strong>Motivo:</strong></p>
+            <p className="px-2 py-1 bg-red-600 text-white text-xs rounded">
+              {log.negative_feedback_details.reason}
+            </p>
           </div>
-        )
-      )}
+          {log.negative_feedback_details.justification && (
+            <div>
+              <p className="text-gray-300 text-sm mb-1"><strong>Justificação:</strong></p>
+              <p className="text-gray-200 text-sm italic bg-gray-700 p-2 rounded">
+                "{log.negative_feedback_details.justification}"
+              </p>
+            </div>
+          )}
+        </div>
+        // --- END OF THE NEW LOGIC ---
+      ) : null}
 
       {/* Existing Validation */}
       {existingValidation && (

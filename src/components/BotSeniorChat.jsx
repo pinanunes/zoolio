@@ -227,35 +227,68 @@ const BotSeniorChat = () => {
 
   const saveFeedback = async (feedback, feedbackData = '') => {
     try {
-      const quotaResult = await updateFeedbackQuota('bot_senior');
+      // --- START: THE DEFINITIVE FIX ---
+      // Determine the correct botId based on the component
+      const botId = BOTS.bot_senior.id; // For BotSeniorChat.jsx, this will be BOTS.bot_senior.id
+
+      // Now, call updateFeedbackQuota with the correct botId
+      const quotaResult = await updateFeedbackQuota(botId);
+      // --- END: THE DEFINITIVE FIX ---
+
       if (!quotaResult.success) {
-        alert(quotaResult.message);
+        if (quotaResult.message) {
+          alert(quotaResult.message);
+        }
         return;
       }
 
-      const insertData = {
-        user_id: user.id,
-        team_id: user.teamId,
-        question: feedback.question,
-        answer: feedback.answer,
+      // Find the original log record that was created in handleSubmit
+      const { data: logToUpdate, error: findError } = await supabase
+        .from('chat_logs')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('question', feedback.question)
+        .eq('answer', feedback.answer)
+        .is('feedback', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (findError || !logToUpdate) {
+        console.warn("Could not find original chat log to update. Feedback not saved.");
+        // We will not insert a new record to avoid data duplication.
+        // The user can try again if needed.
+        throw new Error("Log original não encontrado para atualizar.");
+      }
+
+      const updateData = {
         feedback: feedback.type === 'positive' ? 1 : -1,
-        bot_id: 'bot_senior',
-        disease_classification: lastClassification
       };
 
       if (feedback.type === 'positive' && typeof feedbackData === 'object' && feedbackData.feedback) {
-        insertData.positive_feedback_details = {
+        updateData.positive_feedback_details = {
           options: feedbackData.feedback.options,
           comment: feedbackData.feedback.comment
         };
+      } else if (feedback.type === 'negative' && typeof feedbackData === 'object') {
+        updateData.negative_feedback_details = {
+          reason: feedbackData.negative_reason,
+          justification: feedbackData.student_justification
+        };
       }
 
-      const { error } = await supabase.from('chat_logs').insert(insertData);
+      const { error } = await supabase
+        .from('chat_logs')
+        .update(updateData)
+        .eq('id', logToUpdate.id);
+
       if (error) throw error;
-      console.log('Feedback saved successfully with classification:', lastClassification);
+
+      console.log('Feedback saved successfully for log ID:', logToUpdate.id);
+
     } catch (error) {
       console.error('Error saving feedback:', error);
-      alert('Erro ao guardar feedback. Tente novamente.');
+      alert('Erro ao guardar feedback: ' + error.message);
     }
   };
 
