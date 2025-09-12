@@ -19,7 +19,7 @@ export const BOTS = {
   },
   bot_senior: {
     id: 'bot_senior',
-    name: 'Bot Senior',
+    name: 'Bot Senior V1',
     description: 'Bot treinado com informação compilada pelos estudantes',
     endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828ab',
     icon: botSeniorAvatar,
@@ -27,6 +27,17 @@ export const BOTS = {
     phase: 2,
     requiresSheetSubmitted: true,
     requiresReviewSubmitted: false
+  },
+  bot_senior_v2: {
+    id: 'bot_senior_v2',
+    name: 'Bot Senior V2',
+    description: 'Bot treinado com informação compilada pelos estudantes - versão arena',
+    endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828abc',
+    icon: botSeniorAvatar,
+    color: '#4CAF50', // Green for senior
+    phase: 3,
+    requiresSheetSubmitted: true,
+    requiresReviewSubmitted: true
   },
   bot_pubmed: {
     id: 'bot_pubmed',
@@ -72,7 +83,7 @@ export const getArenaBotsForTeam = (hasSubmittedReview, userRole) => {
   // If the user is an admin or professor, always grant access.
   if (userRole === 'admin' || userRole === 'professor') {
     return [
-      BOTS.bot_senior,
+      BOTS.bot_senior_v2,
       BOTS.bot_pubmed,
       BOTS.bot_llm
     ];
@@ -85,7 +96,7 @@ export const getArenaBotsForTeam = (hasSubmittedReview, userRole) => {
   }
   
   return [
-    BOTS.bot_senior,
+    BOTS.bot_senior_v2,
     BOTS.bot_pubmed,
     BOTS.bot_llm
   ];
