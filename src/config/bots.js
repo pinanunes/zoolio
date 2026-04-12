@@ -10,7 +10,8 @@ export const BOTS = {
     id: 'bot_junior',
     name: 'Bot Junior',
     description: 'Bot inicial com respostas básicas e algumas incertezas',
-    endpoint: 'https://manuelnunes.duckdns.org/webhook/b02fc3cb-3e32-45a5-9cfe-fc5ac994a587',
+    // endpoint: 'https://manuelnunes.duckdns.org/webhook/b02fc3cb-3e32-45a5-9cfe-fc5ac994a587',
+    endpoint: 'https://n8n.fmv.ulisboa.pt/webhook/b02fc3cb-3e32-45a5-9cfe-fc5ac994a587',
     icon: botJuniorAvatar,
     color: '#FFA500', // Orange for junior
     phase: 1,
@@ -21,7 +22,8 @@ export const BOTS = {
     id: 'bot_senior',
     name: 'Bot Senior V1',
     description: 'Bot treinado com informação compilada pelos estudantes',
-    endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828ab',
+   // endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828ab',   
+    endpoint: 'https://n8n.fmv.ulisboa.pt/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828ab',            
     icon: botSeniorAvatar,
     color: '#4CAF50', // Green for senior
     phase: 2,
@@ -32,7 +34,8 @@ export const BOTS = {
     id: 'bot_senior_v2',
     name: 'Bot Senior V2',
     description: 'Bot treinado com informação compilada pelos estudantes - versão arena',
-    endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828abc',
+    //endpoint: 'https://manuelnunes.duckdns.org/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828abc',
+    endpoint: 'https://n8n.fmv.ulisboa.pt/webhook/eb8add01-d6e3-4e47-a6f2-14bc52d828abc',
     icon: botSeniorAvatar,
     color: '#4CAF50', // Green for senior
     phase: 3,
@@ -43,7 +46,8 @@ export const BOTS = {
     id: 'bot_pubmed',
     name: 'Bot PubMed',
     description: 'Bot especializado em literatura científica',
-    endpoint: 'https://manuelnunes.duckdns.org/webhook/f889d515-b0c4-45fa-8fff-1b4e099775db',
+    //endpoint: 'https://manuelnunes.duckdns.org/webhook/f889d515-b0c4-45fa-8fff-1b4e099775db',
+    endpoint: 'https://n8n.fmv.ulisboa.pt/webhook/f889d515-b0c4-45fa-8fff-1b4e099775db',
     icon: botPubmedAvatar,
     color: '#2196F3', // Blue for PubMed
     phase: 3,
@@ -54,7 +58,8 @@ export const BOTS = {
     id: 'bot_llm',
     name: 'Bot LLM',
     description: 'Bot de linguagem avançado',
-    endpoint: 'https://manuelnunes.duckdns.org/webhook/0cd725d3-7bd5-4ed9-83dc-1e9221747484',
+    //endpoint: 'https://manuelnunes.duckdns.org/webhook/0cd725d3-7bd5-4ed9-83dc-1e9221747484',
+    endpoint: 'https://n8n.fmv.ulisboa.pt/webhook/0cd725d3-7bd5-4ed9-83dc-1e9221747484',
     icon: botLLMAvatar,
     color: '#9C27B0', // Purple for LLM
     phase: 3,
