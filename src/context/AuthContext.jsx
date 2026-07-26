@@ -133,8 +133,18 @@ export const AuthProvider = ({ children }) => {
       (event, session) => {
         if (!isMounted) return;
         console.log(`Auth Stage 1: onAuthStateChange event: ${event}`);
-        // Set the basic user object immediately. Hydration will happen in the next effect.
-        setUser(session?.user ?? null);
+        const newAuthUserId = session?.user?.id ?? null;
+
+        setUser(prevUser => {
+          const prevUserId = prevUser?.id ?? null;
+          // Same identity as before (e.g. a TOKEN_REFRESHED fired by supabase-js on
+          // tab refocus): keep the already-hydrated profile instead of clobbering it
+          // with the raw session user, which would force a visible re-hydration.
+          if (newAuthUserId === prevUserId) {
+            return prevUser;
+          }
+          return session?.user ?? null;
+        });
         // This is the key: we stop loading as soon as we know if there's a session or not.
         setLoading(false);
       }
