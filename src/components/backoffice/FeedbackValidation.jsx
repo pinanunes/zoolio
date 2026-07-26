@@ -11,6 +11,10 @@ const FeedbackValidation = () => {
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'arena'
   const [feedbackLogs, setFeedbackLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  const LOGS_PER_PAGE = 20;
   const [processing, setProcessing] = useState({});
   const [filters, setFilters] = useState({
     team: '',
@@ -31,7 +35,8 @@ const FeedbackValidation = () => {
   }, []);
 
   useEffect(() => {
-    loadFeedbackLogs();
+    setPage(0);
+    loadFeedbackLogs(0, true);
   }, [filters]);
 
   const loadData = async () => {
@@ -48,7 +53,7 @@ const FeedbackValidation = () => {
       setDiseases(diseaseClassificationsData.data || []); // Set the new state
       
       await loadGlobalStats();
-      await loadFeedbackLogs();
+      await loadFeedbackLogs(0, true);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -106,84 +111,56 @@ const FeedbackValidation = () => {
     }
   };
 
-    const loadFeedbackLogs = async () => {
+  const loadFeedbackLogs = async (pageNum = 0, isInitialLoad = true) => {
+    if (!isInitialLoad) setLoadingMore(true);
     try {
-      // This component now ONLY fetches regular chat feedback
-      let chatQuery = supabase
-        .from('chat_logs')
-        .select(`
-          *,
-          profiles (full_name),
-          teams (team_name),
-          feedback_validations (*)
-        `)
-        .not('feedback', 'is', null)
-        .eq('is_archived', false) // <-- THE FIX
-        .order('created_at', { ascending: false });
+      const from = pageNum * LOGS_PER_PAGE;
 
-      // Apply server-side filters
-      if (filters.team) {
-        chatQuery = chatQuery.eq('team_id', parseInt(filters.team));
-      }
-      if (filters.disease) { // <-- ADD THIS BLOCK
-        chatQuery = chatQuery.eq('disease_classification', filters.disease);
-      }
-      
-      // Note: Validation and keyword filters will be applied client-side for simplicity
-
-      const { data: chatData, error: chatError } = await chatQuery.limit(100); // Increased limit slightly
-
-      if (chatError) throw chatError;
-
-      // Process professor names for chat logs
-      const professorIds = new Set();
-      chatData.forEach(log => {
-        log.feedback_validations?.forEach(val => {
-          if (val.professor_id) professorIds.add(val.professor_id);
-        });
+      // Filtering and pagination now happen server-side in get_feedback_validation_logs,
+      // so "pending" can never hide items beyond an arbitrary fetch window (see
+      // ADD_FEEDBACK_VALIDATION_PAGINATION_RPC.sql for why the old .limit(100) +
+      // client-side filter approach could silently hide older pending items).
+      const { data, error } = await supabase.rpc('get_feedback_validation_logs', {
+        p_team_id: filters.team ? parseInt(filters.team) : null,
+        p_disease: filters.disease || null,
+        p_validation_status: filters.hasValidation,
+        p_keyword: filters.keyword?.trim() || null,
+        p_limit: LOGS_PER_PAGE,
+        p_offset: from
       });
 
-      let professorsMap = new Map();
-      if (professorIds.size > 0) {
-        const { data: professorsData, error: profsError } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', Array.from(professorIds));
-        
-        if (profsError) throw profsError;
-        professorsData.forEach(prof => professorsMap.set(prof.id, prof.full_name));
-      }
+      if (error) throw error;
 
-      chatData.forEach(log => {
-        log.feedback_validations?.forEach(val => {
-          if (val.professor_id) {
-            val.professor = { full_name: professorsMap.get(val.professor_id) || 'Professor desconhecido' };
-          }
-        });
-      });
-      
-      // Apply client-side filters
-      let filteredFeedback = chatData.map(log => ({ ...log, type: 'chat' }));
+      const transformed = (data || []).map(row => ({
+        id: row.id,
+        created_at: row.created_at,
+        user_id: row.user_id,
+        team_id: row.team_id,
+        question: row.question,
+        answer: row.answer,
+        feedback: row.feedback,
+        bot_id: row.bot_id,
+        disease_classification: row.disease_classification,
+        positive_feedback_details: row.positive_feedback_details,
+        negative_feedback_details: row.negative_feedback_details,
+        error_details: row.error_details,
+        type: 'chat',
+        profiles: { full_name: row.student_name },
+        teams: { team_name: row.team_name },
+        feedback_validations: row.validation_id ? [{
+          id: row.validation_id,
+          comment: row.validation_comment,
+          points_awarded: row.validation_points_awarded,
+          is_validated: row.validation_is_validated,
+          professor_id: row.validation_professor_id,
+          professor: { full_name: row.validation_professor_name || 'Professor desconhecido' },
+          created_at: row.validation_created_at
+        }] : []
+      }));
 
-      if (filters.hasValidation === 'validated') {
-        filteredFeedback = filteredFeedback.filter(log => 
-          log.feedback_validations?.some(v => v.is_validated)
-        );
-      } else if (filters.hasValidation === 'pending') {
-        filteredFeedback = filteredFeedback.filter(log => 
-          !log.feedback_validations?.some(v => v.is_validated)
-        );
-      }
-
-      if (filters.keyword?.trim()) {
-        const keyword = filters.keyword.trim().toLowerCase();
-        filteredFeedback = filteredFeedback.filter(log => 
-          log.question?.toLowerCase().includes(keyword) ||
-          log.answer?.toLowerCase().includes(keyword)
-        );
-      }
-
-      setFeedbackLogs(filteredFeedback);
+      const totalCount = data?.[0]?.total_count ?? 0;
+      setHasMoreData(from + transformed.length < totalCount);
+      setFeedbackLogs(prev => isInitialLoad ? transformed : [...prev, ...transformed]);
 
     } catch (error) {
       console.error('Error loading feedback logs:', error);
@@ -191,7 +168,16 @@ const FeedbackValidation = () => {
         duration: 5000,
         position: 'top-right',
       });
+    } finally {
+      if (!isInitialLoad) setLoadingMore(false);
     }
+  };
+
+  const loadMoreFeedbackLogs = async () => {
+    if (loading || loadingMore || !hasMoreData) return;
+    const nextPage = page + 1;
+    await loadFeedbackLogs(nextPage, false);
+    setPage(nextPage);
   };
 
     const validateFeedback = async (logId, comment, pointsAwarded) => {
@@ -278,7 +264,8 @@ const FeedbackValidation = () => {
       }
 
       // Reload data
-      await loadFeedbackLogs();
+      setPage(0);
+      await loadFeedbackLogs(0, true);
       await loadGlobalStats(); // Update global stats after validation
       
       toast.success('Feedback validado com sucesso!', {
@@ -460,6 +447,18 @@ const FeedbackValidation = () => {
               processing={processing[log.id]}
             />
           ))
+        )}
+      </div>
+
+      <div className="mt-8 flex justify-center">
+        {hasMoreData && (
+          <button
+            onClick={loadMoreFeedbackLogs}
+            disabled={loadingMore}
+            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {loadingMore ? 'A carregar...' : 'Carregar Mais'}
+          </button>
         )}
       </div>
 
