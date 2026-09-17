@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { getCurrentAcademicYearId } from '../../utils/academicYear';
 
 const DiseaseManagement = () => {
   const [diseases, setDiseases] = useState([]);
+  const [historicDiseases, setHistoricDiseases] = useState([]);
+  const [showHistoric, setShowHistoric] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newDiseaseName, setNewDiseaseName] = useState('');
   const [editingDisease, setEditingDisease] = useState(null);
@@ -16,12 +19,15 @@ const DiseaseManagement = () => {
   const loadDiseases = async () => {
     try {
       setLoading(true);
-      
-      // Load diseases with team assignment count
+
+      const yearId = await getCurrentAcademicYearId();
+
+      // Load diseases (every year) with team assignment count and year label
       const { data: diseasesData, error } = await supabase
         .from('diseases')
         .select(`
           *,
+          academic_years (label),
           teams!teams_assigned_disease_id_fkey (id)
         `)
         .order('name');
@@ -34,7 +40,8 @@ const DiseaseManagement = () => {
         assignedTeamsCount: disease.teams ? disease.teams.length : 0
       }));
 
-      setDiseases(processedDiseases);
+      setDiseases(processedDiseases.filter(d => d.academic_year_id === yearId));
+      setHistoricDiseases(processedDiseases.filter(d => d.academic_year_id !== yearId));
     } catch (error) {
       console.error('Error loading diseases:', error);
       alert('Erro ao carregar doenças: ' + error.message);
@@ -284,6 +291,41 @@ const DiseaseManagement = () => {
           </div>
         )}
       </div>
+
+      {/* Historic diseases — read-only, from past academic years */}
+      {historicDiseases.length > 0 && (
+        <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+          <button
+            onClick={() => setShowHistoric(!showHistoric)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <h3 className="text-lg font-bold text-white">
+              Doenças de anos anteriores ({historicDiseases.length})
+            </h3>
+            <span className="text-gray-300">{showHistoric ? '▲' : '▼'}</span>
+          </button>
+          {showHistoric && (
+            <div className="space-y-2 mt-4">
+              {historicDiseases.map((disease) => (
+                <div
+                  key={disease.id}
+                  className="flex items-center justify-between p-3 rounded-lg opacity-75"
+                  style={{ backgroundColor: '#475569' }}
+                >
+                  <div>
+                    <h4 className="text-white font-medium">{disease.name}</h4>
+                    <p className="text-sm text-gray-400">
+                      {disease.academic_years?.label || 'Ano desconhecido'} · {disease.assignedTeamsCount === 0
+                        ? 'Não atribuída a nenhum grupo'
+                        : `Atribuída a ${disease.assignedTeamsCount} grupo(s)`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Statistics */}
       <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>

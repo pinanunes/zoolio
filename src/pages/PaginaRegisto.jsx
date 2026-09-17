@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
+import { getCurrentAcademicYearId } from '../utils/academicYear';
 
 const PaginaRegisto = () => {
   const navigate = useNavigate();
@@ -12,12 +14,30 @@ const PaginaRegisto = () => {
   const [userType, setUserType] = useState('student'); // 'student' or 'professor'
   const [studentNumber, setStudentNumber] = useState('');
   const [teamId, setTeamId] = useState('');
+  const [teamOptions, setTeamOptions] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Generate team options (1-30)
-  const teamOptions = Array.from({ length: 30 }, (_, i) => i + 1);
+  // Current academic year's real teams — not a hardcoded 1..30 range, since team ids
+  // change every year (see TeamManagement.jsx's "Criar Grupos").
+  useEffect(() => {
+    const loadTeams = async () => {
+      try {
+        const yearId = await getCurrentAcademicYearId();
+        const { data, error } = await supabase
+          .from('teams')
+          .select('id, team_name')
+          .eq('academic_year_id', yearId)
+          .order('team_name');
+        if (error) throw error;
+        setTeamOptions(data || []);
+      } catch (err) {
+        console.error('Error loading teams:', err);
+      }
+    };
+    loadTeams();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -187,8 +207,8 @@ const PaginaRegisto = () => {
                 onChange={(e) => setTeamId(e.target.value)}
               >
                 <option value="">Selecione o seu grupo</option>
-                {teamOptions.map(num => (
-                  <option key={num} value={num}>Grupo {num}</option>
+                {teamOptions.map(team => (
+                  <option key={team.id} value={team.id}>{team.team_name}</option>
                 ))}
               </select>
             </div>

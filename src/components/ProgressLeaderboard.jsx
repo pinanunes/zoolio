@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import { getCurrentAcademicYearId } from '../utils/academicYear';
 import UnlockStatusMessage from './UnlockStatusMessage';
 
 const ProgressLeaderboard = () => {
@@ -20,11 +21,14 @@ const ProgressLeaderboard = () => {
     const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Get leaderboard data (no changes here)
+
+      const yearId = await getCurrentAcademicYearId();
+
+      // Get leaderboard data — current academic year only
       const { data: teams, error: teamsError } = await supabase
         .from('teams')
         .select('id, team_name, points')
+        .eq('academic_year_id', yearId)
         .order('points', { ascending: false });
 
       if (teamsError) throw teamsError;
@@ -34,26 +38,24 @@ const ProgressLeaderboard = () => {
       // This is much more efficient than re-fetching from the database.
       if (user?.team) {
         setUserTeam(user.team);
-        
+
         // Calculate team rank
         const teamRank = teams.findIndex(team => team.id === user.team.id) + 1;
-      
-        // --- START OF THE FIX: Corrected Personal Contribution Logic ---
 
-        // Count non-archived CHAT feedbacks
+        // Count current-year CHAT feedbacks
         const { count: chatCount, error: chatError } = await supabase
           .from('chat_logs')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('is_archived', false)
+          .eq('academic_year_id', yearId)
           .not('feedback', 'is', null);
 
-        // Count non-archived ARENA feedbacks
+        // Count current-year ARENA feedbacks
         const { count: arenaCount, error: arenaError } = await supabase
           .from('comparative_chat_logs')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .eq('is_archived', false)
+          .eq('academic_year_id', yearId)
           .not('justification', 'is', null);
 
         if (chatError) console.error("Error counting chat logs:", chatError);
@@ -66,8 +68,6 @@ const ProgressLeaderboard = () => {
           personalContribution,
           teamRank
         });
-        
-        // --- END OF THE FIX ---
 
       } else if (user?.role === 'student') {
         // Handle case where student might not have a team yet

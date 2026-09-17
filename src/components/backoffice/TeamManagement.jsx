@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { getCurrentAcademicYearId } from '../../utils/academicYear';
 
 const TeamManagement = () => {
   const [teams, setTeams] = useState([]);
   const [diseases, setDiseases] = useState([]);
   const [professors, setProfessors] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [currentYearId, setCurrentYearId] = useState(null);
+  const [selectedYearId, setSelectedYearId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState({});
+  const [newTeamQuantity, setNewTeamQuantity] = useState(1);
+  const [creatingTeams, setCreatingTeams] = useState(false);
   const [stats, setStats] = useState({
     withDisease: 0,
     withSupervisor: 0,
@@ -23,7 +29,18 @@ const TeamManagement = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
+
+      const yearId = await getCurrentAcademicYearId();
+      setCurrentYearId(yearId);
+      setSelectedYearId(prev => prev ?? yearId);
+
+      const { data: yearsData, error: yearsError } = await supabase
+        .from('academic_years')
+        .select('id, label, is_current')
+        .order('id', { ascending: false });
+      if (yearsError) throw yearsError;
+      setAcademicYears(yearsData || []);
+
       // Load teams with all related data (COMPLETE VERSION WITH BLUE/RED TEAMS)
       const { data: teamsData, error: teamsError } = await supabase
         .from('teams')
@@ -60,10 +77,10 @@ const TeamManagement = () => {
       setTeams(teamsData || []);
       setDiseases(diseasesData || []);
       setProfessors(professorsData || []);
-      
-      // Calculate statistics
-      calculateStats(teamsData || []);
-      
+
+      // Calculate statistics (current year only)
+      calculateStats((teamsData || []).filter(t => t.academic_year_id === yearId));
+
     } catch (error) {
       console.error('Error loading data:', error);
       alert('Erro ao carregar dados: ' + error.message);
@@ -89,7 +106,7 @@ const TeamManagement = () => {
       setUpdating(prev => ({ ...prev, [`${teamId}-${field}`]: true }));
 
       const updateData = { [field]: value === '' ? null : value };
-      
+
       const { error } = await supabase
         .from('teams')
         .update(updateData)
@@ -99,7 +116,7 @@ const TeamManagement = () => {
 
       // Reload data to get updated relationships
       await loadData();
-      
+
     } catch (error) {
       console.error('Error updating team:', error);
       alert('Erro ao atualizar grupo: ' + error.message);
@@ -116,25 +133,61 @@ const TeamManagement = () => {
     await updateTeam(teamId, field, newValue);
   };
 
-  // Helper function to get available diseases for a team
+  const createTeams = async () => {
+    const qty = parseInt(newTeamQuantity, 10);
+    if (!qty || qty < 1) {
+      alert('Indique um número válido de grupos a criar.');
+      return;
+    }
+
+    try {
+      setCreatingTeams(true);
+
+      const currentYearTeams = teams.filter(t => t.academic_year_id === currentYearId);
+      const existingNumbers = currentYearTeams
+        .map(t => parseInt((t.team_name.match(/\d+/) || [])[0], 10))
+        .filter(n => !isNaN(n));
+      const startFrom = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+
+      const newTeams = Array.from({ length: qty }, (_, i) => ({ team_name: `Grupo ${startFrom + i}` }));
+
+      const { error } = await supabase.from('teams').insert(newTeams);
+      if (error) throw error;
+
+      setNewTeamQuantity(1);
+      await loadData();
+      alert(`${qty} grupo(s) criado(s) com sucesso!`);
+    } catch (error) {
+      console.error('Error creating teams:', error);
+      alert('Erro ao criar grupos: ' + error.message);
+    } finally {
+      setCreatingTeams(false);
+    }
+  };
+
+  const isHistoricView = selectedYearId !== null && selectedYearId !== currentYearId;
+  const yearScopedTeams = teams.filter(t => t.academic_year_id === selectedYearId);
+  const yearScopedDiseases = diseases.filter(d => d.academic_year_id === selectedYearId);
+
+  // Helper function to get available diseases for a team (same academic year only)
   const getAvailableDiseases = (currentTeam) => {
-    const assignedDiseaseIds = teams
+    const assignedDiseaseIds = yearScopedTeams
       .filter(t => t.id !== currentTeam.id && t.assigned_disease_id)
       .map(t => t.assigned_disease_id);
-    
-    return diseases.filter(disease => 
+
+    return yearScopedDiseases.filter(disease =>
       !assignedDiseaseIds.includes(disease.id) || disease.id === currentTeam.assigned_disease_id
     );
   };
 
-  // Helper function to get available blue team targets
+  // Helper function to get available blue team targets (same academic year only)
   const getAvailableBlueTeamTargets = (currentTeam) => {
-    const assignedBlueTargetIds = teams
+    const assignedBlueTargetIds = yearScopedTeams
       .filter(t => t.id !== currentTeam.id && t.blue_team_review_target_id)
       .map(t => t.blue_team_review_target_id);
-    
-    return teams.filter(t => 
-      t.id !== currentTeam.id && 
+
+    return yearScopedTeams.filter(t =>
+      t.id !== currentTeam.id &&
       (!assignedBlueTargetIds.includes(t.id) || t.id === currentTeam.blue_team_review_target_id)
     );
   };
@@ -154,7 +207,7 @@ const TeamManagement = () => {
   return (
     <div>
       <h1 className="text-3xl font-bold text-white mb-6">Gestão de Grupos</h1>
-      
+
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h2 className="text-lg font-bold text-white mb-2">Instruções</h2>
         <p className="text-gray-300">
@@ -162,9 +215,59 @@ const TeamManagement = () => {
         </p>
       </div>
 
-      {/* Statistics */}
+      {/* Year picker */}
+      <div className="mb-6 p-4 rounded-lg flex items-center gap-4" style={{ backgroundColor: '#334155' }}>
+        <label className="text-white font-medium">Ano letivo:</label>
+        <select
+          value={selectedYearId ?? ''}
+          onChange={(e) => setSelectedYearId(parseInt(e.target.value, 10))}
+          className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+          style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
+        >
+          {academicYears.map(year => (
+            <option key={year.id} value={year.id}>
+              {year.label}{year.is_current ? ' (atual)' : ''}
+            </option>
+          ))}
+        </select>
+        {isHistoricView && (
+          <span className="text-yellow-300 text-sm">
+            A ver um ano letivo anterior — apenas leitura, sem edição possível.
+          </span>
+        )}
+      </div>
+
+      {/* Create teams — current year only */}
+      {!isHistoricView && (
+        <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+          <h3 className="text-lg font-bold text-white mb-4">Criar Novos Grupos</h3>
+          <div className="flex items-center gap-4">
+            <input
+              type="number"
+              min="1"
+              value={newTeamQuantity}
+              onChange={(e) => setNewTeamQuantity(e.target.value)}
+              disabled={creatingTeams}
+              className="w-24 px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
+            />
+            <button
+              onClick={createTeams}
+              disabled={creatingTeams}
+              className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {creatingTeams ? 'A criar...' : 'Criar Grupos'}
+            </button>
+            <p className="text-sm text-gray-400">
+              Cria grupos nomeados automaticamente ("Grupo N"), continuando a numeração do ano letivo atual.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Statistics — current year only, always */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
-        <h3 className="text-lg font-bold text-white mb-4">Estatísticas</h3>
+        <h3 className="text-lg font-bold text-white mb-4">Estatísticas (ano letivo atual)</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="text-center">
             <p className="text-2xl font-bold text-green-400">{stats.withDisease}</p>
@@ -210,7 +313,7 @@ const TeamManagement = () => {
             </div>
 
             {/* Team Rows */}
-            {teams.map((team) => (
+            {yearScopedTeams.map((team) => (
               <div key={team.id} className="grid grid-cols-8 gap-4 p-4 border-b hover:bg-gray-600 transition-colors" style={{ borderColor: '#475569' }}>
                 {/* Team Name */}
                 <div className="text-white font-medium">{team.team_name}</div>
@@ -220,10 +323,10 @@ const TeamManagement = () => {
                   <select
                     value={team.assigned_disease_id || ''}
                     onChange={(e) => updateTeam(team.id, 'assigned_disease_id', e.target.value)}
-                    disabled={updating[`${team.id}-assigned_disease_id`]}
+                    disabled={isHistoricView || updating[`${team.id}-assigned_disease_id`]}
                     className="w-full px-2 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    style={{ 
-                      backgroundColor: '#475569', 
+                    style={{
+                      backgroundColor: '#475569',
                       border: '1px solid #64748b',
                       color: '#ffffff'
                     }}
@@ -240,10 +343,10 @@ const TeamManagement = () => {
                   <select
                     value={team.supervisor_id || ''}
                     onChange={(e) => updateTeam(team.id, 'supervisor_id', e.target.value)}
-                    disabled={updating[`${team.id}-supervisor_id`]}
+                    disabled={isHistoricView || updating[`${team.id}-supervisor_id`]}
                     className="w-full px-2 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    style={{ 
-                      backgroundColor: '#475569', 
+                    style={{
+                      backgroundColor: '#475569',
                       border: '1px solid #64748b',
                       color: '#ffffff'
                     }}
@@ -260,10 +363,10 @@ const TeamManagement = () => {
                   <select
                     value={team.blue_team_review_target_id || ''}
                     onChange={(e) => updateTeam(team.id, 'blue_team_review_target_id', e.target.value)}
-                    disabled={updating[`${team.id}-blue_team_review_target_id`]}
+                    disabled={isHistoricView || updating[`${team.id}-blue_team_review_target_id`]}
                     className="w-full px-2 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    style={{ 
-                      backgroundColor: '#475569', 
+                    style={{
+                      backgroundColor: '#475569',
                       border: '1px solid #64748b',
                       color: '#ffffff'
                     }}
@@ -280,16 +383,16 @@ const TeamManagement = () => {
                   <select
                     value={team.red_team_1_target_id || ''}
                     onChange={(e) => updateTeam(team.id, 'red_team_1_target_id', e.target.value)}
-                    disabled={updating[`${team.id}-red_team_1_target_id`]}
+                    disabled={isHistoricView || updating[`${team.id}-red_team_1_target_id`]}
                     className="w-full px-2 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    style={{ 
-                      backgroundColor: '#475569', 
+                    style={{
+                      backgroundColor: '#475569',
                       border: '1px solid #64748b',
                       color: '#ffffff'
                     }}
                   >
                     <option value="">Selecionar grupo...</option>
-                    {teams.filter(t => t.id !== team.id && t.id !== team.red_team_2_target_id).map(otherTeam => (
+                    {yearScopedTeams.filter(t => t.id !== team.id && t.id !== team.red_team_2_target_id).map(otherTeam => (
                       <option key={otherTeam.id} value={otherTeam.id}>{otherTeam.team_name}</option>
                     ))}
                   </select>
@@ -300,16 +403,16 @@ const TeamManagement = () => {
                   <select
                     value={team.red_team_2_target_id || ''}
                     onChange={(e) => updateTeam(team.id, 'red_team_2_target_id', e.target.value)}
-                    disabled={updating[`${team.id}-red_team_2_target_id`]}
+                    disabled={isHistoricView || updating[`${team.id}-red_team_2_target_id`]}
                     className="w-full px-2 py-1 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                    style={{ 
-                      backgroundColor: '#475569', 
+                    style={{
+                      backgroundColor: '#475569',
                       border: '1px solid #64748b',
                       color: '#ffffff'
                     }}
                   >
                     <option value="">Selecionar grupo...</option>
-                    {teams.filter(t => t.id !== team.id && t.id !== team.red_team_1_target_id).map(otherTeam => (
+                    {yearScopedTeams.filter(t => t.id !== team.id && t.id !== team.red_team_1_target_id).map(otherTeam => (
                       <option key={otherTeam.id} value={otherTeam.id}>{otherTeam.team_name}</option>
                     ))}
                   </select>
@@ -319,12 +422,12 @@ const TeamManagement = () => {
                 <div className="flex items-center justify-center">
                   <button
                     onClick={() => toggleSubmission(team.id, 'has_submitted_sheet')}
-                    disabled={updating[`${team.id}-has_submitted_sheet`]}
+                    disabled={isHistoricView || updating[`${team.id}-has_submitted_sheet`]}
                     className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                      team.has_submitted_sheet 
-                        ? 'bg-green-600 text-white hover:bg-green-700' 
+                      team.has_submitted_sheet
+                        ? 'bg-green-600 text-white hover:bg-green-700'
                         : 'bg-red-600 text-white hover:bg-red-700'
-                    }`}
+                    } disabled:opacity-60`}
                   >
                     {team.has_submitted_sheet ? '✓' : '✗'}
                   </button>
@@ -334,12 +437,12 @@ const TeamManagement = () => {
                 <div className="flex items-center justify-center">
                   <button
                     onClick={() => toggleSubmission(team.id, 'has_submitted_review')}
-                    disabled={updating[`${team.id}-has_submitted_review`]}
+                    disabled={isHistoricView || updating[`${team.id}-has_submitted_review`]}
                     className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                      team.has_submitted_review 
-                        ? 'bg-green-600 text-white hover:bg-green-700' 
+                      team.has_submitted_review
+                        ? 'bg-green-600 text-white hover:bg-green-700'
                         : 'bg-red-600 text-white hover:bg-red-700'
-                    }`}
+                    } disabled:opacity-60`}
                   >
                     {team.has_submitted_review ? '✓' : '✗'}
                   </button>

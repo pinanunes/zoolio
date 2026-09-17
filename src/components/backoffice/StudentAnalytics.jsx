@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { getCurrentAcademicYearId } from '../../utils/academicYear';
 import NewYearReset from './NewYearReset';
 
 // A new, reusable component for the clickable table headers
@@ -21,6 +22,9 @@ const SortableHeader = ({ children, column, sortConfig, onSort }) => {
 const StudentAnalytics = () => {
   const [students, setStudents] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [academicYears, setAcademicYears] = useState([]);
+  const [currentYearId, setCurrentYearId] = useState(null);
+  const [selectedYearId, setSelectedYearId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatingStudent, setUpdatingStudent] = useState(null);
   const [stats, setStats] = useState({
@@ -40,22 +44,41 @@ const StudentAnalytics = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'full_name', direction: 'ascending' });
 
   useEffect(() => {
-    loadStudentAnalytics();
-    loadTeams();
+    const init = async () => {
+      const yearId = await getCurrentAcademicYearId();
+      setCurrentYearId(yearId);
+      setSelectedYearId(yearId);
+
+      const { data: yearsData } = await supabase
+        .from('academic_years')
+        .select('id, label, is_current')
+        .order('id', { ascending: false });
+      setAcademicYears(yearsData || []);
+
+      // Reassignment always targets a current-year team, regardless of which
+      // year's analytics are being viewed.
+      await loadTeams(yearId);
+    };
+    init();
   }, []);
 
-  const loadStudentAnalytics = async () => {
+  useEffect(() => {
+    if (selectedYearId === null) return;
+    loadStudentAnalytics(selectedYearId);
+  }, [selectedYearId]);
+
+  const loadStudentAnalytics = async (yearId) => {
     try {
       setLoading(true);
-      
-      // Call the database function to get student analytics
-      const { data, error } = await supabase.rpc('get_student_analytics');
-      
+
+      // Call the database function to get student analytics for the selected year
+      const { data, error } = await supabase.rpc('get_student_analytics', { p_academic_year_id: yearId });
+
       if (error) throw error;
-      
+
       setStudents(data || []);
       calculateStats(data || []);
-      
+
     } catch (error) {
       console.error('Error loading student analytics:', error);
       alert('Erro ao carregar análise de estudantes: ' + error.message);
@@ -77,36 +100,39 @@ const StudentAnalytics = () => {
     setStats(stats);
   };
 
-  const loadTeams = async () => {
+  const loadTeams = async (yearId) => {
     try {
       const { data, error } = await supabase
         .from('teams')
         .select('id, team_name')
+        .eq('academic_year_id', yearId)
         .order('team_name');
-      
+
       if (error) throw error;
-      
+
       setTeams(data || []);
     } catch (error) {
       console.error('Error loading teams:', error);
     }
   };
 
+  const isHistoricView = selectedYearId !== null && selectedYearId !== currentYearId;
+
   const handleTeamChange = async (studentId, newTeamId) => {
     try {
       setUpdatingStudent(studentId);
-      
+
       // Update the student's team in the database
       const { error } = await supabase
         .from('profiles')
         .update({ team_id: newTeamId === '' ? null : parseInt(newTeamId) })
         .eq('id', studentId);
-      
+
       if (error) throw error;
-      
+
       // Reload the student analytics to reflect the change
-      await loadStudentAnalytics();
-      
+      await loadStudentAnalytics(selectedYearId);
+
     } catch (error) {
       console.error('Error updating student team:', error);
       alert('Erro ao atualizar grupo do estudante: ' + error.message);
@@ -237,9 +263,31 @@ const StudentAnalytics = () => {
         </button>
       </div>
 
+      {/* Year picker */}
+      <div className="mb-6 p-4 rounded-lg flex items-center gap-4" style={{ backgroundColor: '#334155' }}>
+        <label className="text-white font-medium">Ano letivo:</label>
+        <select
+          value={selectedYearId ?? ''}
+          onChange={(e) => setSelectedYearId(parseInt(e.target.value, 10))}
+          className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+          style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
+        >
+          {academicYears.map(year => (
+            <option key={year.id} value={year.id}>
+              {year.label}{year.is_current ? ' (atual)' : ''}
+            </option>
+          ))}
+        </select>
+        {isHistoricView && (
+          <span className="text-yellow-300 text-sm">
+            A ver um ano letivo anterior — reatribuição de grupo desativada.
+          </span>
+        )}
+      </div>
+
       {/* New Year Reset Component */}
       <NewYearReset />
-      
+
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
         <h2 className="text-lg font-bold text-white mb-2">Descrição</h2>
         <p className="text-gray-300">
@@ -254,7 +302,9 @@ const StudentAnalytics = () => {
 
       {/* Statistics */}
       <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
-        <h3 className="text-lg font-bold text-white mb-4">Estatísticas Gerais</h3>
+        <h3 className="text-lg font-bold text-white mb-4">
+          Estatísticas Gerais ({academicYears.find(y => y.id === selectedYearId)?.label || '...'})
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="text-center">
             <p className="text-2xl font-bold text-blue-400">{stats.totalStudents}</p>
@@ -320,6 +370,8 @@ const StudentAnalytics = () => {
                       <div className="w-3 h-3 bg-green-400 rounded-full animate-spin mr-2"></div>
                       <span className="text-gray-300 text-sm">Atualizando...</span>
                     </div>
+                  ) : isHistoricView ? (
+                    <span className="text-gray-300 text-sm">{student.team_name || 'Sem grupo'}</span>
                   ) : (
                     <select
                       value={student.team_id || ''}

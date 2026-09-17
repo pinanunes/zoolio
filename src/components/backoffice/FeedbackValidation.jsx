@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
 import { BOTS } from '../../config/bots';
+import { getCurrentAcademicYearId } from '../../utils/academicYear';
 import toast, { Toaster } from 'react-hot-toast';
 import ArenaFeedbackValidation from './ArenaFeedbackValidation';
 import FormattedResponse from '../FormattedResponse'; // Adjust path if needed
 
 const FeedbackValidation = () => {
   const { user } = useAuth();
+  const [currentYearId, setCurrentYearId] = useState(null);
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'arena'
   const [feedbackLogs, setFeedbackLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,17 +44,20 @@ const FeedbackValidation = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
+
+      const yearId = await getCurrentAcademicYearId();
+      setCurrentYearId(yearId);
+
       // Fetch teams and disease classifications in parallel for efficiency
       const [teamsData, diseaseClassificationsData] = await Promise.all([
-        supabase.from('teams').select('id, team_name').order('id', { ascending: true }),
+        supabase.from('teams').select('id, team_name').eq('academic_year_id', yearId).order('id', { ascending: true }),
         supabase.rpc('get_unique_disease_classifications') // Reuse our efficient function
       ]);
 
       setTeams(teamsData.data || []);
       setDiseases(diseaseClassificationsData.data || []); // Set the new state
-      
-      await loadGlobalStats();
+
+      await loadGlobalStats(yearId);
       await loadFeedbackLogs(0, true);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -61,41 +66,37 @@ const FeedbackValidation = () => {
     }
   };
 
-  const loadGlobalStats = async () => {
+  const loadGlobalStats = async (yearId) => {
     try {
-      // --- START OF THE FIX ---
-      // Add .eq('is_archived', false) to all count queries
+      // Only count the current academic year's feedback — matching
+      // get_feedback_validation_logs' own year scoping (see ADD_FEEDBACK_VALIDATION_PAGINATION_RPC.sql).
 
-      // Get total count of non-archived chat feedbacks
       const { count: chatFeedbackCount } = await supabase
         .from('chat_logs')
         .select('*', { count: 'exact', head: true })
         .not('feedback', 'is', null)
-        .eq('is_archived', false); // <-- THE FIX
+        .eq('academic_year_id', yearId);
 
-      // Get total count of non-archived arena feedbacks
       const { count: arenaFeedbackCount } = await supabase
         .from('comparative_chat_logs')
         .select('*', { count: 'exact', head: true })
         .not('justification', 'is', null)
-        .eq('is_archived', false); // <-- THE FIX
+        .eq('academic_year_id', yearId);
 
-      // Get count of non-archived validated chat feedbacks
+      // feedback_validations has no academic_year_id of its own (only its parent chat_logs
+      // does), so scope it via an inner join instead.
       const { count: validatedChatCount } = await supabase
-        .from('feedback_validations')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_validated', true)
-        .eq('is_archived', false); // <-- THE FIX
+        .from('chat_logs')
+        .select('*, feedback_validations!inner(is_validated)', { count: 'exact', head: true })
+        .eq('academic_year_id', yearId)
+        .eq('feedback_validations.is_validated', true);
 
-      // Get count of non-archived validated arena feedbacks
       const { count: validatedArenaCount } = await supabase
         .from('comparative_chat_logs')
         .select('*', { count: 'exact', head: true })
         .eq('is_validated', true)
         .not('justification', 'is', null)
-        .eq('is_archived', false); // <-- THE FIX
-
-      // --- END OF THE FIX ---
+        .eq('academic_year_id', yearId);
 
       const totalCount = (chatFeedbackCount || 0) + (arenaFeedbackCount || 0);
       const validatedCount = (validatedChatCount || 0) + (validatedArenaCount || 0);
@@ -266,7 +267,7 @@ const FeedbackValidation = () => {
       // Reload data
       setPage(0);
       await loadFeedbackLogs(0, true);
-      await loadGlobalStats(); // Update global stats after validation
+      await loadGlobalStats(currentYearId); // Update global stats after validation
       
       toast.success('Feedback validado com sucesso!', {
         duration: 3000,

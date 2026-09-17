@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { BOTS } from '../config/bots';
+import { getCurrentAcademicYearId } from '../utils/academicYear';
 
 const MyFeedback = () => {
   const { user } = useAuth();
@@ -32,7 +33,8 @@ const MyFeedback = () => {
       }
 
       const teamMemberIds = teamMembers.map(member => member.id);
-      
+      const yearId = await getCurrentAcademicYearId();
+
       // Load regular chat feedback (Junior/Senior bots)
       let chatQuery = supabase
         .from('chat_logs')
@@ -49,6 +51,7 @@ const MyFeedback = () => {
           )
         `)
         .in('user_id', teamMemberIds)
+        .eq('academic_year_id', yearId)
         .not('feedback', 'is', null)
         .order('created_at', { ascending: false });
 
@@ -60,6 +63,7 @@ const MyFeedback = () => {
           profiles (full_name)
         `)
         .in('user_id', teamMemberIds)
+        .eq('academic_year_id', yearId)
         .eq('is_validated', true)
         .not('justification', 'is', null)
         .order('created_at', { ascending: false });

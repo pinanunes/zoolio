@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
+import { getCurrentAcademicYearId } from '../../utils/academicYear';
 import toast from 'react-hot-toast';
 import FormattedResponse from '../FormattedResponse'; // Adjust path if needed
 
@@ -15,28 +16,34 @@ const ArenaFeedbackValidation = () => {
     keyword: ''
   });
   const [teams, setTeams] = useState([]);
+  const [currentYearId, setCurrentYearId] = useState(null);
 
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
-    loadArenaFeedback();
-  }, [filters]);
+    if (currentYearId === null) return;
+    loadArenaFeedback(currentYearId);
+  }, [filters, currentYearId]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Load teams
+
+      const yearId = await getCurrentAcademicYearId();
+      setCurrentYearId(yearId);
+
+      // Load teams (current year only)
       const { data: teamsData } = await supabase
         .from('teams')
         .select('id, team_name')
+        .eq('academic_year_id', yearId)
         .order('team_name');
 
       setTeams(teamsData || []);
-      
-      await loadArenaFeedback();
+
+      await loadArenaFeedback(yearId);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -44,7 +51,7 @@ const ArenaFeedbackValidation = () => {
     }
   };
 
-    const loadArenaFeedback = async () => {
+    const loadArenaFeedback = async (yearId) => {
     try {
       let query = supabase
         .from('comparative_chat_logs')
@@ -53,7 +60,7 @@ const ArenaFeedbackValidation = () => {
           profiles!user_id (full_name, team_id, teams!fk_team (team_name))
         `)
         .not('justification', 'is', null)
-        .eq('is_archived', false) // <-- THE FIX
+        .eq('academic_year_id', yearId)
         .order('created_at', { ascending: false });
 
       // Apply team filter
@@ -141,8 +148,8 @@ const ArenaFeedbackValidation = () => {
       // --- END OF THE FIX ---
 
       // Reload data
-      await loadArenaFeedback();
-      
+      await loadArenaFeedback(currentYearId);
+
       toast.success('Feedback da Arena validado com sucesso!', {
         duration: 3000,
         position: 'top-right',
