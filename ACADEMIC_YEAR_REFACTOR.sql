@@ -418,8 +418,39 @@ SELECT count(*) FROM get_student_analytics(1);      -- explicit year 1 (2025/202
 -- year-1 data intact), Cloud 113/113 (still on 2025/2026, both branches agree).
 
 -- =============================================================================
--- STATUS as of 2026-09-17: Phases 1-7 all confirmed live on both self-hosted (test copy,
--- flipped to 2026/2027) and Supabase Cloud production (still on 2025/2026 — deliberately
--- not rolled over yet). Corresponding app-code changes shipped in the same commit as this
--- file. See docs/ARCHITECTURE.md and CLAUDE.md for the wider picture.
+-- PHASE 8 — restore anon SELECT on teams, scoped more precisely than what Phase 4 dropped.
+-- Regression found immediately after the real production rollover to 2026/2027 (self-hosted):
+-- PaginaRegisto.jsx's registration page queries `teams` while logged out (anon role), to
+-- show real current-year teams instead of the old hardcoded "Grupo 1..30" list. Phase 4
+-- dropped "Everyone can view teams" (qual: true, roles: public) as a cleanup, reasoning no
+-- app code needed anon access — true for the *old* registration page, not the new one this
+-- migration introduced. Fixed by granting anon SELECT specifically (not the broader
+-- "public" role Phase 4's target covered), since `authenticated` already has its own
+-- working policies (teams_select_policy / "Students can view teams").
+-- =============================================================================
+
+CREATE POLICY "anon_can_view_teams_for_registration" ON public.teams
+  FOR SELECT
+  TO anon
+  USING (true);
+
+-- =============================================================================
+-- PHASE 8 VERIFICATION
+-- =============================================================================
+SELECT tablename, policyname, cmd FROM pg_policies WHERE tablename = 'teams' AND cmd = 'SELECT';
+-- Confirmed working 2026-09-17: registration page's team dropdown populates correctly
+-- after this, on self-hosted (now production). Apply the same fix to Cloud for consistency
+-- even though it's being retired, in case anyone still reaches that URL.
+
+-- =============================================================================
+-- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
+-- production instance — real 2026/2027 rollover triggered for real via
+-- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams
+-- created via TeamManagement's "Criar Grupos", registration confirmed working end-to-end
+-- for new students. Cloud/Netlify is being retired, left on its own real (separately
+-- triggered) 2026/2027 rollover rather than reconciled. Phases 1-7 (not yet Phase 8, as of
+-- this writing) are also live on Cloud. See docs/ARCHITECTURE.md and CLAUDE.md for the
+-- wider picture — both should be updated to reflect self-hosted Supabase
+-- (supabase.fmv.ulisboa.pt) + the new app server (zoolio.fmv.ulisboa.pt) as the real
+-- production stack, superseding their Netlify/Supabase Cloud descriptions.
 -- =============================================================================
