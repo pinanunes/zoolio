@@ -443,6 +443,77 @@ SELECT tablename, policyname, cmd FROM pg_policies WHERE tablename = 'teams' AND
 -- even though it's being retired, in case anyone still reaches that URL.
 
 -- =============================================================================
+-- PHASE 9 — move profiles row creation to a DB trigger, fixing a real production bug
+-- found 2026-09-18. AuthContext.jsx's register() created the profiles row via a
+-- client-side insert immediately after auth.signUp(). With self-hosted's
+-- ENABLE_EMAIL_AUTOCONFIRM=false (the default — Cloud's project apparently had email
+-- confirmation disabled, which is why this was never hit there), signUp() returns no
+-- session until the confirmation email is clicked, so that insert ran as anon and was
+-- silently rejected by the "auth.uid() = id" RLS policy on profiles — the error was only
+-- ever console.error'd, never surfaced. Net effect: every new signup "succeeded" from the
+-- UI's perspective but never got a profiles row, so login after confirming email always
+-- failed (fetchUserProfile finds 0 rows, AuthContext deliberately signs the user back out)
+-- and professors never appeared in the backoffice "Aprovações" screen. Already flagged as
+-- fragile in docs/ARCHITECTURE.md ("the row is created by app code at sign-up... not a DB
+-- trigger") before this actually broke. Fixed at the DB level with the standard Supabase
+-- pattern (SECURITY DEFINER trigger, runs regardless of session state) plus a matching
+-- change in AuthContext.jsx's register() to pass student_number/team_id through signUp's
+-- metadata instead of a separate insert call.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, email, role, is_approved, personal_points, student_number, team_id)
+  VALUES (
+    NEW.id,
+    NEW.raw_user_meta_data->>'name',
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
+    CASE WHEN COALESCE(NEW.raw_user_meta_data->>'role', 'student') = 'student' THEN true ELSE false END,
+    0,
+    NEW.raw_user_meta_data->>'student_number',
+    NULLIF(NEW.raw_user_meta_data->>'team_id', '')::INT
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- One-time backfill for the two test accounts already created (broken) before this fix —
+-- their auth.users rows exist with the old metadata shape (name/role only), so the
+-- professor backfills cleanly but a test student backfills with no team_id (never
+-- captured under the old client-side-insert approach) and needs manual reassignment or a
+-- fresh re-registration.
+INSERT INTO public.profiles (id, full_name, email, role, is_approved, personal_points, student_number, team_id)
+SELECT
+  u.id,
+  u.raw_user_meta_data->>'name',
+  u.email,
+  COALESCE(u.raw_user_meta_data->>'role', 'student'),
+  CASE WHEN COALESCE(u.raw_user_meta_data->>'role', 'student') = 'student' THEN true ELSE false END,
+  0,
+  u.raw_user_meta_data->>'student_number',
+  NULLIF(u.raw_user_meta_data->>'team_id', '')::INT
+FROM auth.users u
+LEFT JOIN public.profiles p ON p.id = u.id
+WHERE p.id IS NULL;
+
+-- =============================================================================
+-- PHASE 9 VERIFICATION
+-- =============================================================================
+SELECT id, full_name, email, role, is_approved, team_id FROM public.profiles WHERE team_id IS NULL AND role = 'student';
+-- Confirm the backfilled professor now appears in "Aprovações de Professores", and that a
+-- brand-new test signup (after this fix + a fresh app deploy) can actually log in.
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams

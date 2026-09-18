@@ -187,6 +187,12 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (name, email, password, role, studentNumber = null, teamId = null) => {
     try {
+      // The profiles row is created by the on_auth_user_created DB trigger (SECURITY
+      // DEFINER, reads these from auth.users.raw_user_meta_data) rather than a client-side
+      // insert here. A client insert can't work reliably: when email confirmation is
+      // required, signUp() returns no session until the link is clicked, so an insert at
+      // this point runs as anon and is correctly rejected by the "auth.uid() = id" RLS
+      // policy — the row would silently never get created.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -194,35 +200,13 @@ export const AuthProvider = ({ children }) => {
           data: {
             name: name,
             role: role,
+            student_number: role === 'student' ? studentNumber : null,
+            team_id: role === 'student' ? teamId : null,
           }
         }
       });
 
       if (error) throw new Error(error.message);
-
-      if (data.user) {
-        const profileData = {
-          id: data.user.id,
-          full_name: name,
-          email: email,
-          role: role,
-          is_approved: role === 'student' ? true : false,
-          personal_points: 0
-        };
-
-        if (role === 'student') {
-          profileData.student_number = studentNumber;
-          profileData.team_id = teamId;
-        }
-
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert([profileData]);
-
-        if (profileError) {
-          console.error('Profile creation error:', profileError);
-        }
-      }
 
       if (data.user && !data.session) {
         const message = role === 'professor' 
