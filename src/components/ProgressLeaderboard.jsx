@@ -24,12 +24,10 @@ const ProgressLeaderboard = () => {
 
       const yearId = await getCurrentAcademicYearId();
 
-      // Get leaderboard data — current academic year only
-      const { data: teams, error: teamsError } = await supabase
-        .from('teams')
-        .select('id, team_name, points')
-        .eq('academic_year_id', yearId)
-        .order('points', { ascending: false });
+      // Get leaderboard data — current academic year only. Ranked by average points per
+      // counted member (get_leaderboard), not raw team total, so team size doesn't skew
+      // ranking; a student can be excluded from the count via counts_for_leaderboard.
+      const { data: teams, error: teamsError } = await supabase.rpc('get_leaderboard', { p_academic_year_id: yearId });
 
       if (teamsError) throw teamsError;
       setLeaderboard(teams || []);
@@ -40,7 +38,7 @@ const ProgressLeaderboard = () => {
         setUserTeam(user.team);
 
         // Calculate team rank
-        const teamRank = teams.findIndex(team => team.id === user.team.id) + 1;
+        const teamRank = teams.findIndex(team => team.team_id === user.team.id) + 1;
 
         // Count current-year CHAT feedbacks
         const { count: chatCount, error: chatError } = await supabase
@@ -204,22 +202,22 @@ const ProgressLeaderboard = () => {
         <div className="space-y-2">
           {leaderboard.map((team, index) => {
             const rank = index + 1;
-            const isUserTeam = userTeam && team.id === userTeam.id;
-            
+            const isUserTeam = userTeam && team.team_id === userTeam.id;
+
             return (
               <div
-                key={team.id}
+                key={team.team_id}
                 className={`p-4 rounded-lg flex items-center justify-between transition-colors ${
-                  isUserTeam 
-                    ? 'ring-2 ring-green-500' 
+                  isUserTeam
+                    ? 'ring-2 ring-green-500'
                     : ''
                 }`}
-                style={{ 
+                style={{
                   backgroundColor: isUserTeam ? '#065f46' : '#334155'
                 }}
               >
                 <div className="flex items-center space-x-4">
-                  <div 
+                  <div
                     className="text-xl font-bold w-12 text-center"
                     style={{ color: getRankColor(rank) }}
                   >
@@ -230,11 +228,14 @@ const ProgressLeaderboard = () => {
                       {team.team_name}
                       {isUserTeam && <span className="ml-2 text-green-400">(Sua Equipa)</span>}
                     </h4>
+                    <p className="text-xs text-gray-400">
+                      {team.points} pontos totais / {team.member_count} membro(s) contados
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-bold text-green-400">{team.points}</p>
-                  <p className="text-sm text-gray-400">pontos</p>
+                  <p className="text-2xl font-bold text-green-400">{team.average_score}</p>
+                  <p className="text-sm text-gray-400">pontos / membro</p>
                 </div>
               </div>
             );

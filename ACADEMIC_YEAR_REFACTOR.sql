@@ -514,6 +514,95 @@ SELECT id, full_name, email, role, is_approved, team_id FROM public.profiles WHE
 -- brand-new test signup (after this fix + a fresh app deploy) can actually log in.
 
 -- =============================================================================
+-- PHASE 10 — fair leaderboard (average points per counted member, not raw team total)
+-- plus a per-student "counts_for_leaderboard" exclusion flag, e.g. for test accounts.
+-- Requested 2026-09-19: teams have different member counts, so raw team.points unfairly
+-- favors bigger teams. get_leaderboard() computes points / count(counted members) per
+-- team; ProgressLeaderboard.jsx now ranks by that average instead of raw points (still
+-- shows raw points + member_count for transparency). get_student_analytics() extended
+-- (return-shape change, DROP needed) to expose the new flag so StudentAnalytics.jsx can
+-- toggle it per student.
+-- =============================================================================
+
+ALTER TABLE public.profiles ADD COLUMN counts_for_leaderboard BOOLEAN NOT NULL DEFAULT true;
+
+CREATE OR REPLACE FUNCTION public.get_leaderboard(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(team_id INT, team_name TEXT, points INT, member_count INT, average_score NUMERIC)
+LANGUAGE sql STABLE AS $$
+  SELECT
+    t.id AS team_id,
+    t.team_name,
+    t.points,
+    COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard)::INT AS member_count,
+    CASE WHEN COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard) > 0
+      THEN ROUND(t.points::NUMERIC / COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard), 2)
+      ELSE 0
+    END AS average_score
+  FROM public.teams t
+  LEFT JOIN public.profiles p ON p.team_id = t.id AND p.role = 'student'
+  WHERE t.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  GROUP BY t.id, t.team_name, t.points
+  ORDER BY average_score DESC, t.points DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_leaderboard(INT) TO authenticated;
+
+DROP FUNCTION IF EXISTS get_student_analytics(INT);
+CREATE OR REPLACE FUNCTION get_student_analytics(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE (
+    student_id UUID, full_name TEXT, student_number TEXT, team_id INT, team_name TEXT,
+    assigned_disease_id INT, assigned_disease_name TEXT, red_team_1_disease TEXT, red_team_2_disease TEXT,
+    total_feedbacks BIGINT, approved_feedbacks BIGINT, total_points BIGINT, average_points_per_feedback NUMERIC,
+    counts_for_leaderboard BOOLEAN
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year_id INT := COALESCE(p_academic_year_id, public.current_academic_year_id());
+BEGIN
+    RETURN QUERY
+    SELECT
+        p.id, p.full_name, p.student_number, p.team_id, t.team_name,
+        t.assigned_disease_id, d.name, d1.name, d2.name,
+        COALESCE(feedback_stats.total_feedbacks, 0),
+        COALESCE(feedback_stats.approved_feedbacks, 0),
+        COALESCE(feedback_stats.total_points, 0),
+        CASE
+            WHEN COALESCE(feedback_stats.approved_feedbacks, 0) > 0
+            THEN ROUND(COALESCE(feedback_stats.total_points, 0)::NUMERIC / feedback_stats.approved_feedbacks, 2)
+            ELSE 0
+        END,
+        p.counts_for_leaderboard
+    FROM public.profiles p
+    LEFT JOIN public.teams t ON p.team_id = t.id
+    LEFT JOIN public.diseases d ON t.assigned_disease_id = d.id
+    LEFT JOIN public.teams rt1 ON t.red_team_1_target_id = rt1.id
+    LEFT JOIN public.diseases d1 ON rt1.assigned_disease_id = d1.id
+    LEFT JOIN public.teams rt2 ON t.red_team_2_target_id = rt2.id
+    LEFT JOIN public.diseases d2 ON rt2.assigned_disease_id = d2.id
+    LEFT JOIN (
+        SELECT cl.user_id,
+            COUNT(*) as total_feedbacks,
+            COUNT(fv.id) FILTER (WHERE fv.is_validated = true) as approved_feedbacks,
+            COALESCE(SUM(fv.points_awarded) FILTER (WHERE fv.is_validated = true), 0) as total_points
+        FROM public.chat_logs cl
+        LEFT JOIN public.feedback_validations fv ON cl.id = fv.log_id
+        WHERE cl.feedback IS NOT NULL AND cl.academic_year_id = v_year_id
+        GROUP BY cl.user_id
+    ) feedback_stats ON p.id = feedback_stats.user_id
+    WHERE p.role = 'student' AND p.academic_year_id = v_year_id
+    ORDER BY p.full_name;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION get_student_analytics(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 10 VERIFICATION
+-- =============================================================================
+SELECT * FROM get_leaderboard();
+SELECT full_name, counts_for_leaderboard FROM get_student_analytics() LIMIT 5;
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams

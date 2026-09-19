@@ -141,6 +141,27 @@ const StudentAnalytics = () => {
     }
   };
 
+  const handleLeaderboardToggle = async (studentId, currentValue) => {
+    try {
+      setUpdatingStudent(studentId);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ counts_for_leaderboard: !currentValue })
+        .eq('id', studentId);
+
+      if (error) throw error;
+
+      await loadStudentAnalytics(selectedYearId);
+
+    } catch (error) {
+      console.error('Error updating leaderboard flag:', error);
+      alert('Erro ao atualizar estado no ranking: ' + error.message);
+    } finally {
+      setUpdatingStudent(null);
+    }
+  };
+
   const exportToCSV = () => {
     if (students.length === 0) {
       alert('Não há dados para exportar');
@@ -158,7 +179,8 @@ const StudentAnalytics = () => {
       'Total de Feedbacks',
       'Feedbacks Aprovados',
       'Pontuação Total',
-      'Pontuação Média por Feedback'
+      'Pontuação Média por Feedback',
+      'Conta para o Ranking'
     ];
 
     // Convert data to CSV format
@@ -172,7 +194,8 @@ const StudentAnalytics = () => {
       student.total_feedbacks || 0,
       student.approved_feedbacks || 0,
       student.total_points || 0,
-      student.average_points_per_feedback || 0
+      student.average_points_per_feedback || 0,
+      student.counts_for_leaderboard ? 'Sim' : 'Não'
     ]);
 
     // Create CSV content
@@ -334,7 +357,7 @@ const StudentAnalytics = () => {
         <div className="p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
           <div className="min-w-full">
             {/* Header */}
-            <div className="grid grid-cols-10 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
+            <div className="grid grid-cols-11 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
               <SortableHeader column="full_name" sortConfig={sortConfig} onSort={handleSort}>NOME</SortableHeader>
               <SortableHeader column="student_number" sortConfig={sortConfig} onSort={handleSort}>Nº ESTUDANTE</SortableHeader>
               <SortableHeader column="team_name" sortConfig={sortConfig} onSort={handleSort}>GRUPO</SortableHeader>
@@ -345,18 +368,19 @@ const StudentAnalytics = () => {
               <SortableHeader column="approved_feedbacks" sortConfig={sortConfig} onSort={handleSort}>APROVADOS</SortableHeader>
               <SortableHeader column="total_points" sortConfig={sortConfig} onSort={handleSort}>PONTOS</SortableHeader>
               <SortableHeader column="average_points_per_feedback" sortConfig={sortConfig} onSort={handleSort}>MÉDIA</SortableHeader>
+              <SortableHeader column="counts_for_leaderboard" sortConfig={sortConfig} onSort={handleSort}>CONTA P/ RANKING</SortableHeader>
             </div>
 
             {/* Filter Inputs */}
-            <div className="grid grid-cols-10 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
+            <div className="grid grid-cols-11 gap-4 p-4 border-b" style={{ borderColor: '#475569' }}>
               <input type="text" placeholder="Filtrar..." value={filters.full_name} onChange={e => handleFilterChange('full_name', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
               <input type="text" placeholder="Filtrar..." value={filters.student_number} onChange={e => handleFilterChange('student_number', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
               <input type="text" placeholder="Filtrar..." value={filters.team_name} onChange={e => handleFilterChange('team_name', e.target.value)} className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full" />
-              <div className="col-span-7"></div> {/* Empty cells for spacing */}
+              <div className="col-span-8"></div> {/* Empty cells for spacing */}
             </div>
             {/* Student Rows */}
             {filteredAndSortedStudents.map((student) => (
-              <div key={student.student_id} className="grid grid-cols-10 gap-4 p-4 border-b hover:bg-gray-600 transition-colors" style={{ borderColor: '#475569' }}>
+              <div key={student.student_id} className="grid grid-cols-11 gap-4 p-4 border-b hover:bg-gray-600 transition-colors" style={{ borderColor: '#475569' }}>
                 {/* Name */}
                 <div className="text-white font-medium">{student.full_name}</div>
                 
@@ -423,6 +447,22 @@ const StudentAnalytics = () => {
                   <span className="bg-orange-600 text-white px-2 py-1 rounded text-sm">
                     {student.average_points_per_feedback || '0.00'}
                   </span>
+                </div>
+
+                {/* Counts for leaderboard toggle */}
+                <div className="flex items-center justify-center">
+                  <button
+                    onClick={() => handleLeaderboardToggle(student.student_id, student.counts_for_leaderboard)}
+                    disabled={updatingStudent === student.student_id}
+                    title={student.counts_for_leaderboard ? 'Conta para o ranking da equipa — clique para excluir' : 'Excluído do ranking da equipa — clique para incluir'}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors disabled:opacity-60 ${
+                      student.counts_for_leaderboard
+                        ? 'bg-green-600 text-white hover:bg-green-700'
+                        : 'bg-red-600 text-white hover:bg-red-700'
+                    }`}
+                  >
+                    {student.counts_for_leaderboard ? '✓' : '✗'}
+                  </button>
                 </div>
               </div>
             ))}
