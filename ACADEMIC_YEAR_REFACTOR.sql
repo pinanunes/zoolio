@@ -641,9 +641,63 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
 
 -- =============================================================================
--- PHASE 11 VERIFICATION
+-- PHASE 11b — add teacher name to the dashboard, requested 2026-10-19 (same function
+-- signature as 11, no DROP needed). Teacher comes from disease -> team
+-- (teams.assigned_disease_id) -> team.supervisor_id -> profiles.full_name. Matched
+-- case/whitespace-insensitively since chat_logs.disease_classification is free text
+-- produced by the bot's own classification, not a FK to diseases.name — worth checking
+-- after deploy whether teacher names are actually populating for most rows; if the
+-- bot's wording drifts systematically from the curated disease names, tighten this.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_disease(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(disease_classification TEXT, teacher_name TEXT, validated_count BIGINT, pending_count BIGINT, total_count BIGINT)
+LANGUAGE sql STABLE AS $$
+  WITH combined AS (
+    SELECT
+      COALESCE(cl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(fv.is_validated, false) AS is_validated
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL
+      AND cl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    UNION ALL
+    SELECT
+      COALESCE(ccl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(ccl.is_validated, false) AS is_validated
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL
+      AND ccl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  ),
+  teachers AS (
+    SELECT
+      d.name AS disease_name,
+      string_agg(DISTINCT prof.full_name, ', ' ORDER BY prof.full_name) AS teacher_name
+    FROM public.diseases d
+    LEFT JOIN public.teams t ON t.assigned_disease_id = d.id
+    LEFT JOIN public.profiles prof ON prof.id = t.supervisor_id
+    WHERE d.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    GROUP BY d.name
+  )
+  SELECT
+    c.disease_classification,
+    tch.teacher_name,
+    COUNT(*) FILTER (WHERE c.is_validated) AS validated_count,
+    COUNT(*) FILTER (WHERE NOT c.is_validated) AS pending_count,
+    COUNT(*) AS total_count
+  FROM combined c
+  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
+  GROUP BY c.disease_classification, tch.teacher_name
+  ORDER BY total_count DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 11b VERIFICATION
 -- =============================================================================
 SELECT * FROM get_feedback_dashboard_by_disease();
+-- Check how many rows have a non-null teacher_name vs NULL — a lot of NULLs suggests the
+-- classification-to-disease-name matching needs tightening.
 
 -- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real

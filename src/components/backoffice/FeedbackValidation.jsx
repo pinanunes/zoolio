@@ -285,6 +285,11 @@ const FeedbackValidation = () => {
     }
   };
 
+  const handleSelectDiseaseFromDashboard = (diseaseClassification) => {
+    setFilters(prev => ({ ...prev, disease: diseaseClassification }));
+    setActiveTab('chat');
+  };
+
   const clearFilters = () => {
     setFilters({
       team: '',
@@ -354,7 +359,7 @@ const FeedbackValidation = () => {
       {activeTab === 'arena' ? (
         <ArenaFeedbackValidation />
       ) : activeTab === 'dashboard' ? (
-        <FeedbackDiseaseDashboard />
+        <FeedbackDiseaseDashboard onSelectDisease={handleSelectDiseaseFromDashboard} />
       ) : (
         <div>
           <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
