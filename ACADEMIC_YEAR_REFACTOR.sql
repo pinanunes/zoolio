@@ -603,6 +603,49 @@ SELECT * FROM get_leaderboard();
 SELECT full_name, counts_for_leaderboard FROM get_student_analytics() LIMIT 5;
 
 -- =============================================================================
+-- PHASE 11 — feedback-by-disease dashboard, requested 2026-10-19 for a new "Totais por
+-- Doença" tab in Validação de Feedback. Combines chat (Junior/Senior) and Arena feedback
+-- (both carry disease_classification), grouped by disease and validation status, scoped
+-- to the current academic year like everything else. Untagged rows use the existing
+-- 'Não Especificada' sentinel already used elsewhere in the app, not a new label.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_disease(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(disease_classification TEXT, validated_count BIGINT, pending_count BIGINT, total_count BIGINT)
+LANGUAGE sql STABLE AS $$
+  WITH combined AS (
+    SELECT
+      COALESCE(cl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(fv.is_validated, false) AS is_validated
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL
+      AND cl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    UNION ALL
+    SELECT
+      COALESCE(ccl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(ccl.is_validated, false) AS is_validated
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL
+      AND ccl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  )
+  SELECT
+    disease_classification,
+    COUNT(*) FILTER (WHERE is_validated) AS validated_count,
+    COUNT(*) FILTER (WHERE NOT is_validated) AS pending_count,
+    COUNT(*) AS total_count
+  FROM combined
+  GROUP BY disease_classification
+  ORDER BY total_count DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 11 VERIFICATION
+-- =============================================================================
+SELECT * FROM get_feedback_dashboard_by_disease();
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams

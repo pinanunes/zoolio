@@ -5,12 +5,13 @@ import { BOTS } from '../../config/bots';
 import { getCurrentAcademicYearId } from '../../utils/academicYear';
 import toast, { Toaster } from 'react-hot-toast';
 import ArenaFeedbackValidation from './ArenaFeedbackValidation';
+import FeedbackDiseaseDashboard from './FeedbackDiseaseDashboard';
 import FormattedResponse from '../FormattedResponse'; // Adjust path if needed
 
 const FeedbackValidation = () => {
   const { user } = useAuth();
   const [currentYearId, setCurrentYearId] = useState(null);
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'arena'
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat', 'arena', or 'dashboard'
   const [feedbackLogs, setFeedbackLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -335,12 +336,25 @@ const FeedbackValidation = () => {
             <span className="mr-2">⚔️</span>
             Arena de Bots
           </button>
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+              activeTab === 'dashboard'
+                ? 'border-green-500 text-green-400'
+                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            }`}
+          >
+            <span className="mr-2">📊</span>
+            Totais por Doença
+          </button>
         </nav>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'arena' ? (
         <ArenaFeedbackValidation />
+      ) : activeTab === 'dashboard' ? (
+        <FeedbackDiseaseDashboard />
       ) : (
         <div>
           <div className="mb-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
