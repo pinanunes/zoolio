@@ -693,11 +693,66 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
 
 -- =============================================================================
--- PHASE 11b VERIFICATION
+-- PHASE 11c — fix: 11b's teachers CTE scoped the disease->team->supervisor lookup to only
+-- the current academic year, so diseases assigned to a team/supervisor in a PREVIOUS year
+-- (most of them — this year's new teams only cover a handful of new diseases) came back
+-- with no teacher. Found 2026-10-19 immediately after deploying 11b, real data showed
+-- teacher_name null for nearly every disease except the few newly re-assigned this year.
+-- Fix: search across ALL years for each disease name's most recent team+supervisor
+-- assignment (DISTINCT ON ... ORDER BY academic_year_id DESC) instead of filtering to the
+-- current year — professors carry over between years, so this is the actually-correct
+-- interpretation of "who supervises this disease," not a year-exact lookup. Return shape
+-- unchanged from 11b, so CREATE OR REPLACE works without a DROP this time.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_disease(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(disease_classification TEXT, teacher_name TEXT, validated_count BIGINT, pending_count BIGINT, total_count BIGINT)
+LANGUAGE sql STABLE AS $$
+  WITH combined AS (
+    SELECT
+      COALESCE(cl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(fv.is_validated, false) AS is_validated
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL
+      AND cl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    UNION ALL
+    SELECT
+      COALESCE(ccl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(ccl.is_validated, false) AS is_validated
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL
+      AND ccl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  ),
+  teachers AS (
+    SELECT DISTINCT ON (LOWER(TRIM(d.name)))
+      d.name AS disease_name,
+      prof.full_name AS teacher_name
+    FROM public.diseases d
+    JOIN public.teams t ON t.assigned_disease_id = d.id
+    JOIN public.profiles prof ON prof.id = t.supervisor_id
+    ORDER BY LOWER(TRIM(d.name)), d.academic_year_id DESC
+  )
+  SELECT
+    c.disease_classification,
+    tch.teacher_name,
+    COUNT(*) FILTER (WHERE c.is_validated) AS validated_count,
+    COUNT(*) FILTER (WHERE NOT c.is_validated) AS pending_count,
+    COUNT(*) AS total_count
+  FROM combined c
+  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
+  GROUP BY c.disease_classification, tch.teacher_name
+  ORDER BY total_count DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 11c VERIFICATION
 -- =============================================================================
 SELECT * FROM get_feedback_dashboard_by_disease();
--- Check how many rows have a non-null teacher_name vs NULL — a lot of NULLs suggests the
--- classification-to-disease-name matching needs tightening.
+-- Check how many rows have a non-null teacher_name vs NULL — should now cover diseases
+-- assigned in any past year, not just this one. 'Não Especificada' and anything never
+-- assigned to any team in any year correctly stays NULL.
 
 -- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
