@@ -134,21 +134,6 @@ const BotJuniorChat = () => {
 
     const saveFeedback = async (feedback, feedbackData = '') => {
     try {
-      // --- START: THE DEFINITIVE FIX ---
-      // Determine the correct botId based on the component
-      const botId = BOTS.bot_junior.id; // For BotSeniorChat.jsx, this will be BOTS.bot_senior.id
-
-      // Now, call updateFeedbackQuota with the correct botId
-      const quotaResult = await updateFeedbackQuota(botId);
-      // --- END: THE DEFINITIVE FIX ---
-
-      if (!quotaResult.success) {
-        if (quotaResult.message) {
-          alert(quotaResult.message);
-        }
-        return;
-      }
-
       // Find the original log record that was created in handleSubmit
       const { data: logToUpdate, error: findError } = await supabase
         .from('chat_logs')
@@ -193,6 +178,14 @@ const BotJuniorChat = () => {
       if (error) throw error;
 
       console.log('Feedback saved successfully for log ID:', logToUpdate.id);
+
+      // Only consume a quota slot once the feedback write above has actually succeeded —
+      // doing this first (as before) could burn a slot with nothing recorded if the write
+      // then failed (e.g. the find-the-original-log step above).
+      const quotaResult = await updateFeedbackQuota(BOTS.bot_junior.id);
+      if (!quotaResult.success && quotaResult.message) {
+        alert(quotaResult.message);
+      }
 
     } catch (error) {
       console.error('Error saving feedback:', error);

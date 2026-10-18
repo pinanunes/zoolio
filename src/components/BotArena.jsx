@@ -176,7 +176,7 @@ const arenaBots = isUnlocked ? getArenaBotsForTeam(
  // --- START OF FIX 3: Update the handleFeedbackSubmit function ---
   const handleFeedbackSubmit = async (justification) => {
     try {
-      await supabase
+      const { error: insertError } = await supabase
         .from('comparative_chat_logs')
         .insert([{
           user_id: user.id,
@@ -188,6 +188,11 @@ const arenaBots = isUnlocked ? getArenaBotsForTeam(
           justification: justification,
           disease_classification: questionClassification // Add the classification here
         }]);
+
+      // Only consume a quota slot once the vote has actually been recorded — the error
+      // from insert() was previously never checked, so a failed insert would still
+      // silently consume a quota slot.
+      if (insertError) throw insertError;
 
       if (user?.role === 'student') {
         await updateFeedbackQuota('bot_arena');
