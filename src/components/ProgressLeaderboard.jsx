@@ -12,6 +12,7 @@ const ProgressLeaderboard = () => {
     personalContribution: 0,
     teamRank: 0
   });
+  const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,10 +68,23 @@ const ProgressLeaderboard = () => {
           teamRank
         });
 
+        // Per-member breakdown for the student's own team only — get_my_team_feedback_summary
+        // derives the team from the caller's own session server-side, so this can never
+        // return another team's data regardless of what the client sends.
+        if (user?.role === 'student') {
+          const { data: members, error: membersError } = await supabase.rpc('get_my_team_feedback_summary');
+          if (membersError) {
+            console.error('Error loading team members summary:', membersError);
+          } else {
+            setTeamMembers(members || []);
+          }
+        }
+
       } else if (user?.role === 'student') {
         // Handle case where student might not have a team yet
         setUserTeam(null);
         setUserStats({ personalContribution: 0, teamRank: 0 });
+        setTeamMembers([]);
       }
 
     } catch (error) {
@@ -148,6 +162,46 @@ const ProgressLeaderboard = () => {
             <h3 className="text-lg font-bold text-white mb-1">Contribuição</h3>
             <p className="text-2xl font-bold text-purple-400">{userStats.personalContribution}</p>
             <p className="text-sm text-gray-400">Feedbacks dados</p>
+          </div>
+        </div>
+      )}
+
+      {/* Team Members Breakdown — only the logged-in student's own team */}
+      {userTeam && teamMembers.length > 0 && (
+        <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
+          <h3 className="text-lg font-bold text-white mb-4">👥 Contribuições da Equipa — {userTeam.team_name}</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b" style={{ borderColor: '#475569' }}>
+                  <th className="py-2 px-3 text-white font-bold">Membro</th>
+                  <th className="py-2 px-3 text-white font-bold text-center">Submetidos</th>
+                  <th className="py-2 px-3 text-white font-bold text-center">Revistos</th>
+                  <th className="py-2 px-3 text-white font-bold text-center">Pontuação Média</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamMembers.map((member) => (
+                  <tr
+                    key={member.student_id}
+                    className={`border-b transition-colors ${member.student_id === user.id ? 'bg-green-900 bg-opacity-30' : ''}`}
+                    style={{ borderColor: '#475569' }}
+                  >
+                    <td className="py-2 px-3 text-white">
+                      {member.full_name}
+                      {member.student_id === user.id && <span className="ml-2 text-green-400 text-xs">(Você)</span>}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <span className="bg-blue-600 text-white px-2 py-1 rounded text-sm">{member.total_submitted}</span>
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <span className="bg-green-600 text-white px-2 py-1 rounded text-sm">{member.total_reviewed}</span>
+                    </td>
+                    <td className="py-2 px-3 text-center text-orange-400 font-medium">{member.average_score}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

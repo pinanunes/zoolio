@@ -755,6 +755,85 @@ SELECT * FROM get_feedback_dashboard_by_disease();
 -- assigned to any team in any year correctly stays NULL.
 
 -- =============================================================================
+-- PHASE 12 — per-member team contribution breakdown on the frontoffice leaderboard,
+-- requested 2026-10-19. A student should see their own team's members' submitted/reviewed
+-- feedback counts and average score, but never another team's. Rather than relying on
+-- profiles RLS (a student can already read teammates' profiles — confirmed by
+-- MyFeedback.jsx's existing working use of the same query pattern — but trusting a
+-- client-supplied team_id would still let a student query any team by guessing its id),
+-- get_my_team_feedback_summary() derives "my team" from auth.uid() inside the
+-- SECURITY DEFINER function itself, so it can never return another team's data regardless
+-- of what the client sends.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.get_my_team_feedback_summary()
+RETURNS TABLE (
+  student_id UUID,
+  full_name TEXT,
+  total_submitted BIGINT,
+  total_reviewed BIGINT,
+  average_score NUMERIC
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year_id INT := public.current_academic_year_id();
+  v_team_id INT;
+BEGIN
+  SELECT team_id INTO v_team_id FROM public.profiles WHERE id = auth.uid();
+  IF v_team_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    p.id,
+    p.full_name,
+    COALESCE(chat_stats.submitted, 0) + COALESCE(arena_stats.submitted, 0) AS total_submitted,
+    COALESCE(chat_stats.reviewed, 0) + COALESCE(arena_stats.reviewed, 0) AS total_reviewed,
+    CASE
+      WHEN (COALESCE(chat_stats.reviewed,0) + COALESCE(arena_stats.reviewed,0)) > 0
+      THEN ROUND(
+        (COALESCE(chat_stats.points,0) + COALESCE(arena_stats.points,0))::NUMERIC
+        / (COALESCE(chat_stats.reviewed,0) + COALESCE(arena_stats.reviewed,0)), 2)
+      ELSE 0
+    END AS average_score
+  FROM public.profiles p
+  LEFT JOIN (
+    SELECT cl.user_id,
+      COUNT(*) AS submitted,
+      COUNT(fv.id) FILTER (WHERE fv.is_validated = true) AS reviewed,
+      COALESCE(SUM(fv.points_awarded) FILTER (WHERE fv.is_validated = true), 0) AS points
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL AND cl.academic_year_id = v_year_id
+    GROUP BY cl.user_id
+  ) chat_stats ON chat_stats.user_id = p.id
+  LEFT JOIN (
+    SELECT ccl.user_id,
+      COUNT(*) AS submitted,
+      COUNT(*) FILTER (WHERE ccl.is_validated = true) AS reviewed,
+      COALESCE(SUM(ccl.points_awarded) FILTER (WHERE ccl.is_validated = true), 0) AS points
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL AND ccl.academic_year_id = v_year_id
+    GROUP BY ccl.user_id
+  ) arena_stats ON arena_stats.user_id = p.id
+  WHERE p.team_id = v_team_id AND p.role = 'student'
+  ORDER BY p.full_name;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_my_team_feedback_summary() TO authenticated;
+
+-- =============================================================================
+-- PHASE 12 VERIFICATION
+-- =============================================================================
+-- Can't exercise auth.uid()-dependent logic from a superuser psql session directly (same
+-- caveat as Phase 5's start_new_academic_year test) — verify via the actual app UI logged
+-- in as a real student, or simulate with: BEGIN; SET LOCAL request.jwt.claims =
+-- '{"sub": "<a real student id>"}'; SELECT * FROM get_my_team_feedback_summary(); COMMIT;
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams
