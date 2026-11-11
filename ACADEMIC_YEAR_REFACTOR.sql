@@ -1094,6 +1094,20 @@ GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_teacher(INT) TO authe
 -- unrelated disease whose name happens to be a substring of another's.
 -- =============================================================================
 
+-- =============================================================================
+-- PHASE 16 — Phase 15 only stripped the parenthetical suffix off the CURATED name; the
+-- bot's own classification text carries its own, often more specific, parenthetical
+-- (e.g. "Criptosporidiose (Cryptosporidium parvum)" naming the exact species) that
+-- Phase 15 never touched. Found immediately after deploying 15: "Criptosporidiose" (no
+-- parens) matched fine, but "Criptosporidiose (Cryptosporidium parvum)" — the SAME
+-- disease, just a more specific classification for that particular question — still
+-- showed "—", as a separate row. Requested fix (2026-11-11): strip BOTH sides before
+-- matching, and display the curated name (the one used in Gestão de Grupos) whenever a
+-- match is found, so every classification variant of the same disease collapses into
+-- one row instead of fragmenting into several almost-identical ones. Falls back to the
+-- bot's raw text only for classifications that don't match any curated disease at all.
+-- =============================================================================
+
 DROP FUNCTION IF EXISTS public.get_feedback_dashboard_by_disease(INT);
 
 CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_disease(p_academic_year_id INT DEFAULT NULL)
@@ -1119,7 +1133,8 @@ LANGUAGE sql STABLE AS $$
   ),
   teachers AS (
     SELECT DISTINCT ON (LOWER(TRIM(alt)))
-      TRIM(alt) AS disease_name,
+      d.name AS disease_name,
+      LOWER(TRIM(alt)) AS match_key,
       prof.full_name AS teacher_name
     FROM public.diseases d
     JOIN public.teams t ON t.assigned_disease_id = d.id
@@ -1131,15 +1146,16 @@ LANGUAGE sql STABLE AS $$
       d.academic_year_id DESC
   )
   SELECT
-    c.disease_classification,
+    COALESCE(tch.disease_name, c.disease_classification) AS disease_classification,
     tch.teacher_name,
     COUNT(*) FILTER (WHERE c.is_validated) AS validated_count,
     COUNT(*) FILTER (WHERE NOT c.is_validated) AS pending_count,
     COUNT(*) AS total_count,
     MAX(c.validated_at) AS last_validated_at
   FROM combined c
-  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
-  GROUP BY c.disease_classification, tch.teacher_name
+  LEFT JOIN teachers tch
+    ON tch.match_key = LOWER(TRIM(regexp_replace(c.disease_classification, '\s*\([^)]*\)\s*$', '')))
+  GROUP BY COALESCE(tch.disease_name, c.disease_classification), tch.teacher_name
   ORDER BY total_count DESC;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
@@ -1167,7 +1183,8 @@ LANGUAGE sql STABLE AS $$
   ),
   teachers AS (
     SELECT DISTINCT ON (LOWER(TRIM(alt)))
-      TRIM(alt) AS disease_name,
+      d.name AS disease_name,
+      LOWER(TRIM(alt)) AS match_key,
       prof.full_name AS teacher_name
     FROM public.diseases d
     JOIN public.teams t ON t.assigned_disease_id = d.id
@@ -1185,21 +1202,24 @@ LANGUAGE sql STABLE AS $$
     COUNT(*) AS total_count,
     MAX(c.validated_at) AS last_validated_at
   FROM combined c
-  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
+  LEFT JOIN teachers tch
+    ON tch.match_key = LOWER(TRIM(regexp_replace(c.disease_classification, '\s*\([^)]*\)\s*$', '')))
   GROUP BY tch.teacher_name
   ORDER BY total_count DESC;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_teacher(INT) TO authenticated;
 
 -- =============================================================================
--- PHASE 15 VERIFICATION
+-- PHASE 16 VERIFICATION
 -- =============================================================================
 -- SELECT * FROM get_feedback_dashboard_by_disease() WHERE disease_classification ILIKE
 --   ANY (ARRAY['%criptosporidiose%', '%mal rubro%', '%hidatidose%', '%equinococose%']);
--- Confirm teacher_name is now populated for these. If any disease STILL shows "—",
--- the bot's classification text for it likely diverges even further from the curated
--- name (e.g. a typo, a wholly different wording, or an accent mismatch — TRIM/LOWER
--- doesn't strip accents). Run this to compare the two sides directly for a holdout:
+-- Confirm there is now only ONE row per real disease (no more "Criptosporidiose" and
+-- "Criptosporidiose (Cryptosporidium parvum)" as separate rows), labeled with the
+-- curated name and showing the right teacher. Anything still showing "—" means the
+-- bot's wording diverges from the curated name in some other way (typo, different
+-- wording entirely, or an accent mismatch — none of this normalizes accents). Compare
+-- both sides directly for a holdout:
 --   SELECT DISTINCT disease_classification FROM chat_logs
 --   WHERE disease_classification ILIKE '%<partial name>%';
 --   SELECT name FROM diseases WHERE academic_year_id = current_academic_year_id()
