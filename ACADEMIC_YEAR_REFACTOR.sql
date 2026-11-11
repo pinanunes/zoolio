@@ -1074,6 +1074,138 @@ GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_teacher(INT) TO authe
 -- last_validated_at reflects the most recent validation you've done.
 
 -- =============================================================================
+-- PHASE 15 — tolerate curated disease names that don't match the bot's free-text
+-- classification verbatim, requested 2026-11-11 right after Phase 14 shipped: several
+-- diseases that ARE currently assigned to a team/professor (confirmed in Gestão de
+-- Grupos) still showed "—" in the dashboard, e.g. Criptosporidiose, Mal Rubro,
+-- Equinococose/Hidatidose. Root cause (different from Phase 14's year-priority bug):
+-- the "teachers" CTE's final join is an EXACT case/whitespace-insensitive string match
+-- between diseases.name and chat_logs.disease_classification, but diseases.name often
+-- carries a scientific-name suffix in parentheses (e.g. "Criptosporidiose
+-- (Cryptosporidium spp.)") that the bot's classification never includes, and some
+-- names combine two alternative labels with a slash (e.g. "Equinococose/Hidatidose")
+-- where the bot only ever uses one side. Both cases always failed the exact match,
+-- independent of which professor currently owns the disease.
+--
+-- Fix: before matching, strip any trailing "(...)" from the curated name, then split
+-- it on "/" into its alternative labels (a name with no slash just yields itself), and
+-- match against ANY of those normalized alternatives. The match is still an exact
+-- equality after normalization, not a fuzzy LIKE, to avoid accidentally matching an
+-- unrelated disease whose name happens to be a substring of another's.
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS public.get_feedback_dashboard_by_disease(INT);
+
+CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_disease(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(disease_classification TEXT, teacher_name TEXT, validated_count BIGINT, pending_count BIGINT, total_count BIGINT, last_validated_at TIMESTAMPTZ)
+LANGUAGE sql STABLE AS $$
+  WITH combined AS (
+    SELECT
+      COALESCE(cl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(fv.is_validated, false) AS is_validated,
+      fv.validation_date AS validated_at
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL
+      AND cl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    UNION ALL
+    SELECT
+      COALESCE(ccl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(ccl.is_validated, false) AS is_validated,
+      ccl.validated_at
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL
+      AND ccl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  ),
+  teachers AS (
+    SELECT DISTINCT ON (LOWER(TRIM(alt)))
+      TRIM(alt) AS disease_name,
+      prof.full_name AS teacher_name
+    FROM public.diseases d
+    JOIN public.teams t ON t.assigned_disease_id = d.id
+    JOIN public.profiles prof ON prof.id = t.supervisor_id
+    CROSS JOIN LATERAL unnest(string_to_array(regexp_replace(d.name, '\s*\([^)]*\)\s*$', ''), '/')) AS alt
+    ORDER BY
+      LOWER(TRIM(alt)),
+      (d.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())) DESC,
+      d.academic_year_id DESC
+  )
+  SELECT
+    c.disease_classification,
+    tch.teacher_name,
+    COUNT(*) FILTER (WHERE c.is_validated) AS validated_count,
+    COUNT(*) FILTER (WHERE NOT c.is_validated) AS pending_count,
+    COUNT(*) AS total_count,
+    MAX(c.validated_at) AS last_validated_at
+  FROM combined c
+  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
+  GROUP BY c.disease_classification, tch.teacher_name
+  ORDER BY total_count DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_disease(INT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_feedback_dashboard_by_teacher(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(teacher_name TEXT, validated_count BIGINT, pending_count BIGINT, total_count BIGINT, last_validated_at TIMESTAMPTZ)
+LANGUAGE sql STABLE AS $$
+  WITH combined AS (
+    SELECT
+      COALESCE(cl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(fv.is_validated, false) AS is_validated,
+      fv.validation_date AS validated_at
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL
+      AND cl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+    UNION ALL
+    SELECT
+      COALESCE(ccl.disease_classification, 'Não Especificada') AS disease_classification,
+      COALESCE(ccl.is_validated, false) AS is_validated,
+      ccl.validated_at
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL
+      AND ccl.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  ),
+  teachers AS (
+    SELECT DISTINCT ON (LOWER(TRIM(alt)))
+      TRIM(alt) AS disease_name,
+      prof.full_name AS teacher_name
+    FROM public.diseases d
+    JOIN public.teams t ON t.assigned_disease_id = d.id
+    JOIN public.profiles prof ON prof.id = t.supervisor_id
+    CROSS JOIN LATERAL unnest(string_to_array(regexp_replace(d.name, '\s*\([^)]*\)\s*$', ''), '/')) AS alt
+    ORDER BY
+      LOWER(TRIM(alt)),
+      (d.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())) DESC,
+      d.academic_year_id DESC
+  )
+  SELECT
+    COALESCE(tch.teacher_name, 'Sem professor atribuído') AS teacher_name,
+    COUNT(*) FILTER (WHERE c.is_validated) AS validated_count,
+    COUNT(*) FILTER (WHERE NOT c.is_validated) AS pending_count,
+    COUNT(*) AS total_count,
+    MAX(c.validated_at) AS last_validated_at
+  FROM combined c
+  LEFT JOIN teachers tch ON LOWER(TRIM(tch.disease_name)) = LOWER(TRIM(c.disease_classification))
+  GROUP BY tch.teacher_name
+  ORDER BY total_count DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_feedback_dashboard_by_teacher(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 15 VERIFICATION
+-- =============================================================================
+-- SELECT * FROM get_feedback_dashboard_by_disease() WHERE disease_classification ILIKE
+--   ANY (ARRAY['%criptosporidiose%', '%mal rubro%', '%hidatidose%', '%equinococose%']);
+-- Confirm teacher_name is now populated for these. If any disease STILL shows "—",
+-- the bot's classification text for it likely diverges even further from the curated
+-- name (e.g. a typo, a wholly different wording, or an accent mismatch — TRIM/LOWER
+-- doesn't strip accents). Run this to compare the two sides directly for a holdout:
+--   SELECT DISTINCT disease_classification FROM chat_logs
+--   WHERE disease_classification ILIKE '%<partial name>%';
+--   SELECT name FROM diseases WHERE academic_year_id = current_academic_year_id()
+--   AND name ILIKE '%<partial name>%';
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams
