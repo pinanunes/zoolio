@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import { getBotDisplayInfo } from '../config/bots';
 
 const ChatMessage = ({ message, onFeedback, user }) => {
-  const { type, content, timestamp, id, originalQuestion } = message;
+  const { type, content, timestamp, id, originalQuestion, logId } = message;
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   // Função para processar markdown e citações no texto do bot
@@ -70,6 +70,7 @@ const ChatMessage = ({ message, onFeedback, user }) => {
     
     const feedbackData = {
       messageId: id,
+      logId: logId,
       question: originalQuestion,
       answer: typeof content === 'string' ? content : (content.answer || content.message || content.text || JSON.stringify(content)),
       type: 'positive'
@@ -80,12 +81,13 @@ const ChatMessage = ({ message, onFeedback, user }) => {
 
   const handleNegativeFeedback = () => {
     if (feedbackSubmitted) return; // Prevent double-clicks
-    
+
     console.log('Negative feedback clicked for message:', id);
     setFeedbackSubmitted(true);
-    
+
     const feedbackData = {
       messageId: id,
+      logId: logId,
       question: originalQuestion,
       answer: typeof content === 'string' ? content : (content.answer || content.message || content.text || JSON.stringify(content)),
       type: 'negative'
@@ -229,13 +231,14 @@ const ChatMessage = ({ message, onFeedback, user }) => {
               <div className="flex items-center space-x-2 mt-2 ml-4">
                 <button
                   onClick={handlePositiveFeedback}
-                  disabled={!hasQuotaRemaining || feedbackSubmitted}
+                  disabled={!hasQuotaRemaining || feedbackSubmitted || !logId}
                   className={`p-1.5 transition-colors rounded-md ${
-                    hasQuotaRemaining && !feedbackSubmitted
-                      ? 'text-maria-gray-500 hover:text-maria-green-400 hover:bg-maria-gray-700 cursor-pointer' 
+                    hasQuotaRemaining && !feedbackSubmitted && logId
+                      ? 'text-maria-gray-500 hover:text-maria-green-400 hover:bg-maria-gray-700 cursor-pointer'
                       : 'text-gray-600 cursor-not-allowed opacity-50'
                   }`}
                   title={
+                    !logId ? "A guardar mensagem..." :
                     feedbackSubmitted ? "Feedback já submetido" :
                     hasQuotaRemaining ? "Esta resposta foi útil" : "Quota de feedback esgotada"
                   }
@@ -244,13 +247,14 @@ const ChatMessage = ({ message, onFeedback, user }) => {
                 </button>
                 <button
                   onClick={handleNegativeFeedback}
-                  disabled={!hasQuotaRemaining || feedbackSubmitted}
+                  disabled={!hasQuotaRemaining || feedbackSubmitted || !logId}
                   className={`p-1.5 transition-colors rounded-md ${
-                    hasQuotaRemaining && !feedbackSubmitted
-                      ? 'text-maria-gray-500 hover:text-maria-pink-400 hover:bg-maria-gray-700 cursor-pointer' 
+                    hasQuotaRemaining && !feedbackSubmitted && logId
+                      ? 'text-maria-gray-500 hover:text-maria-pink-400 hover:bg-maria-gray-700 cursor-pointer'
                       : 'text-gray-600 cursor-not-allowed opacity-50'
                   }`}
                   title={
+                    !logId ? "A guardar mensagem..." :
                     feedbackSubmitted ? "Feedback já submetido" :
                     hasQuotaRemaining ? "Esta resposta não foi útil" : "Quota de feedback esgotada"
                   }

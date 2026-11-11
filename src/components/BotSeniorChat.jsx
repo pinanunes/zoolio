@@ -181,10 +181,13 @@ const BotSeniorChat = () => {
         originalQuestion: userMessage.content, responseTime, botId: BOTS.bot_senior.id
       };
       setMessages(prev => [...prev, botMessage]);
-      
-      // --- START OF THE FIX: Log every interaction ---
+
+      // Log every interaction. Capture the real chat_logs id and attach it to the message
+      // so feedback later targets this exact row by primary key — re-finding it by
+      // question+answer text (the old approach) breaks if the same question is ever asked
+      // more than once, since .single() throws on an ambiguous multi-row match.
       try {
-        await supabase.from('chat_logs').insert({
+        const { data: insertedLog, error: insertLogError } = await supabase.from('chat_logs').insert({
           user_id: user.id,
           team_id: user.teamId,
           question: botMessage.originalQuestion,
@@ -193,11 +196,12 @@ const BotSeniorChat = () => {
           is_archived: false,
           disease_classification: classification
           // We leave 'feedback' as null since none was given yet
-        });
+        }).select('id').single();
+        if (insertLogError) throw insertLogError;
+        setMessages(prev => prev.map(m => m.id === botMessage.id ? { ...m, logId: insertedLog.id } : m));
       } catch (logError) {
         console.error("Error saving chat log:", logError);
       }
-      // --- END OF THE FIX ---
 
     } catch (error) {
       clearTimeout(timeoutId);
@@ -227,23 +231,14 @@ const BotSeniorChat = () => {
 
   const saveFeedback = async (feedback, feedbackData = '') => {
     try {
-      // Find the original log record that was created in handleSubmit
-      const { data: logToUpdate, error: findError } = await supabase
-        .from('chat_logs')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('question', feedback.question)
-        .eq('answer', feedback.answer)
-        .is('feedback', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (findError || !logToUpdate) {
-        console.warn("Could not find original chat log to update. Feedback not saved.");
-        // We will not insert a new record to avoid data duplication.
-        // The user can try again if needed.
-        throw new Error("Log original não encontrado para atualizar.");
+      // feedback.logId is the real chat_logs id, attached to the message when it was
+      // first inserted (see handleSubmit) — targets this exact row directly instead of
+      // re-finding it by question+answer text, which breaks if the same question/answer
+      // pair ever occurs more than once (ambiguous match, ChatMessage.jsx also disables
+      // the feedback buttons until logId arrives so this should only happen if the insert
+      // itself failed).
+      if (!feedback.logId) {
+        throw new Error("Não foi possível identificar a mensagem original. Tente novamente.");
       }
 
       const updateData = {
@@ -265,11 +260,11 @@ const BotSeniorChat = () => {
       const { error } = await supabase
         .from('chat_logs')
         .update(updateData)
-        .eq('id', logToUpdate.id);
+        .eq('id', feedback.logId);
 
       if (error) throw error;
 
-      console.log('Feedback saved successfully for log ID:', logToUpdate.id);
+      console.log('Feedback saved successfully for log ID:', feedback.logId);
 
       // Only consume a quota slot once the feedback write above has actually succeeded —
       // doing this first (as before) could burn a slot with nothing recorded if the write
