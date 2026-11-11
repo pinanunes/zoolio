@@ -834,6 +834,119 @@ GRANT EXECUTE ON FUNCTION public.get_my_team_feedback_summary() TO authenticated
 -- '{"sub": "<a real student id>"}'; SELECT * FROM get_my_team_feedback_summary(); COMMIT;
 
 -- =============================================================================
+-- PHASE 13 — fix a real bug in Phase 12 + generalize it for professors. Reported
+-- 2026-11-11: students could not see other teams' scores on the leaderboard. Root cause:
+-- get_leaderboard() (Phase 10) was never marked SECURITY DEFINER, so its internal query
+-- against teams/profiles ran under the CALLING student's own RLS — and a student can't
+-- read other students' profiles rows under RLS, so the member_count join silently came
+-- back empty for every team but (sometimes) their own, making every other team's average
+-- score compute as 0. Every other RPC in this file (get_student_analytics,
+-- get_feedback_dashboard_by_disease, get_my_team_feedback_summary) was correctly
+-- SECURITY DEFINER already — this one was a miss. Also requested: professors/admins need
+-- to see individual contributions inside ANY team, not just "their own" (they have none).
+-- get_my_team_feedback_summary() is replaced by get_team_feedback_summary(p_team_id) —
+-- a student caller's team_id is still derived from their own session regardless of what
+-- they pass (can't see another team), but an admin/professor caller may pass any team id.
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.get_leaderboard(p_academic_year_id INT DEFAULT NULL)
+RETURNS TABLE(team_id INT, team_name TEXT, points INT, member_count INT, average_score NUMERIC)
+LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT
+    t.id AS team_id,
+    t.team_name,
+    t.points,
+    COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard)::INT AS member_count,
+    CASE WHEN COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard) > 0
+      THEN ROUND(t.points::NUMERIC / COUNT(p.id) FILTER (WHERE p.counts_for_leaderboard), 2)
+      ELSE 0
+    END AS average_score
+  FROM public.teams t
+  LEFT JOIN public.profiles p ON p.team_id = t.id AND p.role = 'student'
+  WHERE t.academic_year_id = COALESCE(p_academic_year_id, public.current_academic_year_id())
+  GROUP BY t.id, t.team_name, t.points
+  ORDER BY average_score DESC, t.points DESC;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_leaderboard(INT) TO authenticated;
+
+DROP FUNCTION IF EXISTS public.get_my_team_feedback_summary();
+
+CREATE OR REPLACE FUNCTION public.get_team_feedback_summary(p_team_id INT DEFAULT NULL)
+RETURNS TABLE (
+  student_id UUID,
+  full_name TEXT,
+  total_submitted BIGINT,
+  total_reviewed BIGINT,
+  average_score NUMERIC
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year_id INT := public.current_academic_year_id();
+  v_team_id INT;
+  v_caller_role TEXT;
+BEGIN
+  SELECT role, team_id INTO v_caller_role, v_team_id FROM public.profiles WHERE id = auth.uid();
+
+  IF v_caller_role IN ('admin', 'professor') THEN
+    v_team_id := p_team_id; -- staff may inspect any team
+  END IF;
+  -- students: v_team_id stays whatever their own profile says, p_team_id is ignored
+
+  IF v_team_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    p.id,
+    p.full_name,
+    COALESCE(chat_stats.submitted, 0) + COALESCE(arena_stats.submitted, 0) AS total_submitted,
+    COALESCE(chat_stats.reviewed, 0) + COALESCE(arena_stats.reviewed, 0) AS total_reviewed,
+    CASE
+      WHEN (COALESCE(chat_stats.reviewed,0) + COALESCE(arena_stats.reviewed,0)) > 0
+      THEN ROUND(
+        (COALESCE(chat_stats.points,0) + COALESCE(arena_stats.points,0))::NUMERIC
+        / (COALESCE(chat_stats.reviewed,0) + COALESCE(arena_stats.reviewed,0)), 2)
+      ELSE 0
+    END AS average_score
+  FROM public.profiles p
+  LEFT JOIN (
+    SELECT cl.user_id,
+      COUNT(*) AS submitted,
+      COUNT(fv.id) FILTER (WHERE fv.is_validated = true) AS reviewed,
+      COALESCE(SUM(fv.points_awarded) FILTER (WHERE fv.is_validated = true), 0) AS points
+    FROM public.chat_logs cl
+    LEFT JOIN public.feedback_validations fv ON fv.log_id = cl.id
+    WHERE cl.feedback IS NOT NULL AND cl.academic_year_id = v_year_id
+    GROUP BY cl.user_id
+  ) chat_stats ON chat_stats.user_id = p.id
+  LEFT JOIN (
+    SELECT ccl.user_id,
+      COUNT(*) AS submitted,
+      COUNT(*) FILTER (WHERE ccl.is_validated = true) AS reviewed,
+      COALESCE(SUM(ccl.points_awarded) FILTER (WHERE ccl.is_validated = true), 0) AS points
+    FROM public.comparative_chat_logs ccl
+    WHERE ccl.justification IS NOT NULL AND ccl.academic_year_id = v_year_id
+    GROUP BY ccl.user_id
+  ) arena_stats ON arena_stats.user_id = p.id
+  WHERE p.team_id = v_team_id AND p.role = 'student'
+  ORDER BY p.full_name;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_team_feedback_summary(INT) TO authenticated;
+
+-- =============================================================================
+-- PHASE 13 VERIFICATION
+-- =============================================================================
+-- As a real logged-in student (not a superuser psql session — SECURITY DEFINER fixes the
+-- underlying RLS problem, but you still need a real auth.uid() context to prove it):
+-- confirm the leaderboard page now shows non-zero average scores for teams other than
+-- your own. As a professor/admin, confirm the new team picker on the leaderboard page
+-- returns real per-member data for any team selected.
+
+-- =============================================================================
 -- STATUS as of 2026-09-17: Phases 1-8 confirmed live on self-hosted, now the real
 -- production instance — real 2026/2027 rollover triggered for real via
 -- start_new_academic_year (NewYearReset.jsx's "Iniciar Novo Ano Letivo"), new teams

@@ -13,11 +13,31 @@ const ProgressLeaderboard = () => {
     teamRank: 0
   });
   const [teamMembers, setTeamMembers] = useState([]);
+  const [selectedStaffTeamId, setSelectedStaffTeamId] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const isStaff = user?.role === 'professor' || user?.role === 'admin';
 
   useEffect(() => {
     loadData();
   }, [user]);
+
+  useEffect(() => {
+    if (isStaff && selectedStaffTeamId) {
+      loadTeamBreakdown(selectedStaffTeamId);
+    } else if (isStaff) {
+      setTeamMembers([]);
+    }
+  }, [selectedStaffTeamId]);
+
+  const loadTeamBreakdown = async (teamId) => {
+    const { data, error } = await supabase.rpc('get_team_feedback_summary', { p_team_id: teamId });
+    if (error) {
+      console.error('Error loading team breakdown:', error);
+    } else {
+      setTeamMembers(data || []);
+    }
+  };
 
     const loadData = async () => {
     try {
@@ -28,6 +48,8 @@ const ProgressLeaderboard = () => {
       // Get leaderboard data — current academic year only. Ranked by average points per
       // counted member (get_leaderboard), not raw team total, so team size doesn't skew
       // ranking; a student can be excluded from the count via counts_for_leaderboard.
+      // SECURITY DEFINER on the server side so every student can see every team's real
+      // score, not just whichever rows their own RLS happens to allow.
       const { data: teams, error: teamsError } = await supabase.rpc('get_leaderboard', { p_academic_year_id: yearId });
 
       if (teamsError) throw teamsError;
@@ -68,11 +90,12 @@ const ProgressLeaderboard = () => {
           teamRank
         });
 
-        // Per-member breakdown for the student's own team only — get_my_team_feedback_summary
-        // derives the team from the caller's own session server-side, so this can never
-        // return another team's data regardless of what the client sends.
+        // Per-member breakdown for the student's own team only — get_team_feedback_summary
+        // derives "own team" from the caller's own session server-side for a student
+        // caller, so this can never return another team's data regardless of what the
+        // client sends.
         if (user?.role === 'student') {
-          const { data: members, error: membersError } = await supabase.rpc('get_my_team_feedback_summary');
+          const { data: members, error: membersError } = await supabase.rpc('get_team_feedback_summary');
           if (membersError) {
             console.error('Error loading team members summary:', membersError);
           } else {
@@ -166,10 +189,33 @@ const ProgressLeaderboard = () => {
         </div>
       )}
 
-      {/* Team Members Breakdown — only the logged-in student's own team */}
-      {userTeam && teamMembers.length > 0 && (
+      {/* Team Members Breakdown — a student's own team only; staff may pick any team */}
+      {(userTeam || isStaff) && (
         <div className="p-6 rounded-lg" style={{ backgroundColor: '#334155' }}>
-          <h3 className="text-lg font-bold text-white mb-4">👥 Contribuições da Equipa — {userTeam.team_name}</h3>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <h3 className="text-lg font-bold text-white">
+              👥 Contribuições da Equipa
+              {userTeam && !isStaff && ` — ${userTeam.team_name}`}
+            </h3>
+            {isStaff && (
+              <select
+                value={selectedStaffTeamId}
+                onChange={(e) => setSelectedStaffTeamId(e.target.value ? parseInt(e.target.value, 10) : '')}
+                className="px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ backgroundColor: '#475569', border: '1px solid #64748b', color: '#ffffff' }}
+              >
+                <option value="">Selecionar equipa...</option>
+                {leaderboard.map((team) => (
+                  <option key={team.team_id} value={team.team_id}>{team.team_name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          {teamMembers.length === 0 ? (
+            <p className="text-gray-400 text-sm">
+              {isStaff ? 'Selecione uma equipa para ver as contribuições dos seus membros.' : 'Sem dados de contribuição ainda.'}
+            </p>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
@@ -203,6 +249,7 @@ const ProgressLeaderboard = () => {
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
