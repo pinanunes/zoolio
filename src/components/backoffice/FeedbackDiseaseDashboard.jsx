@@ -18,11 +18,18 @@ const SortableHeader = ({ children, column, sortConfig, onSort }) => {
   );
 };
 
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' });
+};
+
 const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
   const [rows, setRows] = useState([]);
+  const [teacherRows, setTeacherRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ disease_classification: '', teacher_name: '' });
   const [sortConfig, setSortConfig] = useState({ key: 'total_count', direction: 'descending' });
+  const [teacherSortConfig, setTeacherSortConfig] = useState({ key: 'total_count', direction: 'descending' });
 
   useEffect(() => {
     loadDashboard();
@@ -32,9 +39,14 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
     try {
       setLoading(true);
       const yearId = await getCurrentAcademicYearId();
-      const { data, error } = await supabase.rpc('get_feedback_dashboard_by_disease', { p_academic_year_id: yearId });
+      const [{ data, error }, { data: teacherData, error: teacherError }] = await Promise.all([
+        supabase.rpc('get_feedback_dashboard_by_disease', { p_academic_year_id: yearId }),
+        supabase.rpc('get_feedback_dashboard_by_teacher', { p_academic_year_id: yearId })
+      ]);
       if (error) throw error;
+      if (teacherError) throw teacherError;
       setRows(data || []);
+      setTeacherRows(teacherData || []);
     } catch (error) {
       console.error('Error loading feedback dashboard:', error);
     } finally {
@@ -53,6 +65,26 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
+
+  const handleTeacherSort = (key) => {
+    let direction = 'ascending';
+    if (teacherSortConfig.key === key && teacherSortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setTeacherSortConfig({ key, direction });
+  };
+
+  const sortedTeacherRows = useMemo(() => {
+    const result = [...teacherRows];
+    result.sort((a, b) => {
+      const aVal = a[teacherSortConfig.key] ?? (typeof a.total_count === 'number' ? 0 : '');
+      const bVal = b[teacherSortConfig.key] ?? (typeof b.total_count === 'number' ? 0 : '');
+      if (aVal < bVal) return teacherSortConfig.direction === 'ascending' ? -1 : 1;
+      if (aVal > bVal) return teacherSortConfig.direction === 'ascending' ? 1 : -1;
+      return 0;
+    });
+    return result;
+  }, [teacherRows, teacherSortConfig]);
 
   const filteredAndSortedRows = useMemo(() => {
     let result = rows.filter(row => {
@@ -126,6 +158,7 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
                     Total{sortConfig.key === 'total_count' ? (sortConfig.direction === 'ascending' ? ' ▲' : ' ▼') : ' ↕'}
                   </div>
                 </th>
+                <SortableHeader column="last_validated_at" sortConfig={sortConfig} onSort={handleSort}>Última validação</SortableHeader>
               </tr>
               <tr className="border-b" style={{ borderColor: '#475569' }}>
                 <th className="py-2 px-3">
@@ -146,7 +179,7 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
                     className="bg-gray-700 text-white text-sm rounded px-2 py-1 w-full"
                   />
                 </th>
-                <th colSpan={3}></th>
+                <th colSpan={4}></th>
               </tr>
             </thead>
             <tbody>
@@ -167,11 +200,12 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
                     <span className="bg-yellow-600 text-white px-2 py-1 rounded text-sm">{row.pending_count}</span>
                   </td>
                   <td className="py-2 px-3 text-center text-white font-medium">{row.total_count}</td>
+                  <td className="py-2 px-3 text-gray-300">{formatDateTime(row.last_validated_at)}</td>
                 </tr>
               ))}
               {filteredAndSortedRows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-6 text-center text-gray-400">
+                  <td colSpan={6} className="py-6 text-center text-gray-400">
                     Nenhum feedback encontrado para os filtros atuais.
                   </td>
                 </tr>
@@ -184,9 +218,64 @@ const FeedbackDiseaseDashboard = ({ onSelectDisease }) => {
                   <td className="py-2 px-3 text-center text-green-400 font-bold">{totals.validated}</td>
                   <td className="py-2 px-3 text-center text-yellow-400 font-bold">{totals.pending}</td>
                   <td className="py-2 px-3 text-center text-white font-bold">{totals.total}</td>
+                  <td></td>
                 </tr>
               </tfoot>
             )}
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#334155' }}>
+        <h2 className="text-lg font-bold text-white mb-2">Totais por Professor</h2>
+        <p className="text-gray-300 mb-4">
+          Mesmos dados, agrupados por professor responsável pela doença, para o ano letivo atual.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b" style={{ borderColor: '#475569' }}>
+                <SortableHeader column="teacher_name" sortConfig={teacherSortConfig} onSort={handleTeacherSort}>Professor</SortableHeader>
+                <th className="py-2 px-3 text-white font-bold text-center">
+                  <div onClick={() => handleTeacherSort('validated_count')} className="cursor-pointer select-none flex items-center justify-center">
+                    Validados{teacherSortConfig.key === 'validated_count' ? (teacherSortConfig.direction === 'ascending' ? ' ▲' : ' ▼') : ' ↕'}
+                  </div>
+                </th>
+                <th className="py-2 px-3 text-white font-bold text-center">
+                  <div onClick={() => handleTeacherSort('pending_count')} className="cursor-pointer select-none flex items-center justify-center">
+                    Pendentes{teacherSortConfig.key === 'pending_count' ? (teacherSortConfig.direction === 'ascending' ? ' ▲' : ' ▼') : ' ↕'}
+                  </div>
+                </th>
+                <th className="py-2 px-3 text-white font-bold text-center">
+                  <div onClick={() => handleTeacherSort('total_count')} className="cursor-pointer select-none flex items-center justify-center">
+                    Total{teacherSortConfig.key === 'total_count' ? (teacherSortConfig.direction === 'ascending' ? ' ▲' : ' ▼') : ' ↕'}
+                  </div>
+                </th>
+                <SortableHeader column="last_validated_at" sortConfig={teacherSortConfig} onSort={handleTeacherSort}>Última validação</SortableHeader>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedTeacherRows.map((row) => (
+                <tr key={row.teacher_name} className="border-b" style={{ borderColor: '#475569' }}>
+                  <td className="py-2 px-3 text-white">{row.teacher_name}</td>
+                  <td className="py-2 px-3 text-center">
+                    <span className="bg-green-600 text-white px-2 py-1 rounded text-sm">{row.validated_count}</span>
+                  </td>
+                  <td className="py-2 px-3 text-center">
+                    <span className="bg-yellow-600 text-white px-2 py-1 rounded text-sm">{row.pending_count}</span>
+                  </td>
+                  <td className="py-2 px-3 text-center text-white font-medium">{row.total_count}</td>
+                  <td className="py-2 px-3 text-gray-300">{formatDateTime(row.last_validated_at)}</td>
+                </tr>
+              ))}
+              {sortedTeacherRows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-gray-400">
+                    Nenhum feedback encontrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
           </table>
         </div>
       </div>
